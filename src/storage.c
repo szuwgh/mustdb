@@ -678,9 +678,13 @@ static void schema_scan_fn(CatalogEntry* entry, void* ctx)
     vector_push_back(schemas, schema);
 }
 
-static void checkpointManager_destroy(CheckpointManager* self)
+void CheckpointManager_destroy(CheckpointManager* self)
 {
-    metaBlockWriter_destroy(self->meta_block_writer);
+    if (!self) return;
+    if (self->meta_block_writer)
+        metaBlockWriter_destroy(self->meta_block_writer);
+    if (self->tabledata_writer)
+        metaBlockWriter_destroy(self->tabledata_writer);
     free(self);
 }
 

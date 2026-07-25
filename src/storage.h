@@ -345,6 +345,7 @@ typedef struct
 } CheckpointManager;
 
 CheckpointManager* CheckpointManager_create(BlockManager* block_manager, Catalog* catalog);
+void CheckpointManager_destroy(CheckpointManager* self);
 void checkpointManager_createpoint(CheckpointManager* self);
 void checkpointManager_loadfromstorage(CheckpointManager* self);
 

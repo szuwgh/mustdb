@@ -7,6 +7,9 @@
 #include "parser.h"
 #include "table.h"
 
+static void tablecatalogEntry_destroy(TableCatalogEntry* entry);
+static void schemacatalogEntry_destroy(SchemaCatalogEntry* entry);
+
 void catalogSet_init(CatalogSet* set)
 {
     hmap_init_str(&set->data, sizeof(CatalogEntry*));
@@ -14,6 +17,36 @@ void catalogSet_init(CatalogSet* set)
 
 void catalogSet_deinit(CatalogSet* set)
 {
+    if (!set) return;
+    HMAP_FOREACH(&set->data, raw)
+    {
+        CatalogEntry* entry = *(CatalogEntry**)raw;
+        while (entry)
+        {
+            CatalogEntry* child = entry->child;
+            entry->child = NULL;
+            entry->parent = NULL;
+            if (entry->destroy)
+                entry->destroy(entry);
+            else
+            {
+                switch (entry->type)
+                {
+                    case SCHEMA:
+                        schemacatalogEntry_destroy((SchemaCatalogEntry*)entry);
+                        break;
+                    case TABLE:
+                        tablecatalogEntry_destroy((TableCatalogEntry*)entry);
+                        break;
+                    default:
+                        free(entry->name);
+                        free(entry);
+                        break;
+                }
+            }
+            entry = child;
+        }
+    }
     hmap_deinit(&set->data);
 }
 
@@ -24,6 +57,7 @@ static void catalogEntry_init(CatalogEntry* entry, CatalogType type, char* name)
     entry->deleted = false;
     entry->parent = NULL;
     entry->child = NULL;
+    entry->destroy = NULL;
 }
 
 static CatalogEntry* make_entry(CatalogType type, char* name)

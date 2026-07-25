@@ -1,5 +1,12 @@
 # VectorBase — Claude Code 项目指令
 
+## 规则
+1. 每次回复我前请叫我师父
+2. 这个项目要和/home/unvdb/cproject/vecobs协作
+
+## 数据库
+安装目录为/home/unvdb/unvdb-tx/bin ，数据目录是/home/unvdb/unvdb-data，客户端为：ud_sql, 端口：5678
+
 ## 项目结构
 
 ```
@@ -15,6 +22,15 @@ vectorbase/
     ├── src/              # 所有向量索引源文件
     └── tests/            # 所有测试 (test_*.c，自动发现)
 ```
+
+## AI 修改边界（强制）
+- `tmp/pgvectorbasetmp` 是PG插件实验场：AI 可以在这里验证方案、写原型、跑测试、积累可迁移经验。
+- `tmp/src` 是实验场：AI 可以在这里验证方案、写原型、跑测试、积累可迁移经验。
+- `src` 是产品化核心：AI **不得直接修改 `src/` 下任何代码或头文件**。
+- `pgvectorbase` 是PG插件产品化核心：AI **不得直接修改 `pgvectorbase/` 下任何代码或头文件**。
+- 如果用户要把 `tmp/src` 经验迁移到 `src`，AI 只能做分析、设计、拆任务、指出参考代码和风险；具体 `src` 代码由用户自己手写。
+- AI 不得把 `tmp/src` 文件整块复制到 `src`，也不得用“清理/同步/顺手修复”为理由改动 `src`。
+- 只有当用户在当前对话中明确写出“允许你修改 `src/...` 具体文件”时，AI 才能触碰对应文件；授权必须是文件级或任务级的，不能默认扩展到整个 `src/`。
 
 ## 构建与测试
 
@@ -297,7 +313,7 @@ free_list 为空 → rs_append_to_store（高水位线增长）
 - **不得过度防御**：只在系统边界（外部输入）做校验，内部不变量用 `assert()`
 
 ## 禁止行为
-- **不得修改src下代码(除非我指示你),只能在tmp下修改**
+- **不得修改 `src/` 下代码或头文件；`src` 是用户手写产品化核心，AI 默认只允许修改 `tmp/` 和文档**
 - **不得修改src下代码的测试用例写到tests, tmp/src下的代码的测试用例写到tmp/tests**
 - **不得引入顺序 iid 计数器**（如 `next_internal_id`、新增 `emb_iid` 字段）
 - **不得修改磁盘格式字段名** `u64 emb_iid` 及字符串 `"_emb_iid"` — checkpoint 兼容
@@ -384,3 +400,9 @@ TAM_READ_CHUNK(am, ctx, out_chunk, ...)   // 批量读取
 ```
 
 **各引擎** vtable 内部实现可以（也必须）直接访问自己的 store：`heap_scan` 访问 `ht->store`，`emb_append_chunk` 访问 `et->store`，`col_append_chunk` 访问 `ct->cs`。封装边界在 `StorageTable` 层，不在引擎层。
+
+
+# 参考代码
+/home/unvdb/cproject/UDB-TX 是postgresql 源码
+/home/unvdb/cproject/sqlite 是sqlite 源码
+/home/unvdb/cproject/duckdb-1.0.0 是duckdb 源码

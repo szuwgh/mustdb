@@ -41,11 +41,6 @@ static u64 hash1(const char* val, usize size)
     return hash;
 }
 
-static u64 hash_char(char* val, usize size)
-{
-    return hash1((const char*)val, size);
-}
-
 static u64 hash_u8(u8* val, usize size)
 {
     return hash1((const char*)val, size);
@@ -131,6 +126,12 @@ void hmap_deinit(hmap* hm)
 void hmap_init_str(hmap* hm, usize value_size)
 {
     hmap_init(hm, 0, value_size, HMAP_DEFAULT_NBUCKETS, hmap_str_hash, hmap_str_cmp);
+}
+
+void hmap_init_int(hmap* hm, usize value_size)
+{
+    hmap_init(hm, sizeof(int), value_size, HMAP_DEFAULT_NBUCKETS,
+              hmap_int_hash, hmap_int_cmp);
 }
 
 hmap* hmap_create(usize key_size, usize value_size, usize nbuckets,
@@ -221,6 +222,12 @@ hmap_node* hmap_get(hmap* hmap, const void* key)
         node = node->next;
     }
     return NULL;
+}
+
+void* hmap_get_value(hmap* hmap, const void* key)
+{
+    hmap_node* node = hmap_get(hmap, key);
+    return node ? node->value : NULL;
 }
 
 int hmap_delete(hmap* hmap, const void* key, void* out)

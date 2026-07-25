@@ -20,6 +20,7 @@ typedef enum
 } CatalogType;
 
 typedef struct CatalogEntry CatalogEntry;
+typedef void (*CatalogEntryDestroyFn)(CatalogEntry* entry);
 
 struct CatalogEntry
 {
@@ -28,6 +29,7 @@ struct CatalogEntry
     bool deleted; // 是否已删除（逻辑删除）
     CatalogEntry* parent; // 父目录项
     CatalogEntry* child;  // 子目录项
+    CatalogEntryDestroyFn destroy; // 可选 owner 回调；NULL 使用默认销毁
 };
 
 typedef void (*CatalogScanFn)(CatalogEntry* entry, void* ctx);
@@ -66,7 +68,7 @@ typedef struct
     EXTENDS(CatalogEntry);
     SchemaCatalogEntry* schema;
     DataTable* datatable;      /* legacy path (src/), may be NULL */
-    StorageTable* storage_table;  /* new path (tmp/src/), may be NULL */
+    struct StorageTable* storage_table;  /* new path (tmp/) */
     ColumnDefinition* columns;
     usize column_count;
 } TableCatalogEntry;
