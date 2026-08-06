@@ -1,0 +1,11 @@
+prefix=__PREFIX__
+exec_prefix=__EXEC_PREFIX__
+libdir=__LIBDIR__
+includedir=__INCLUDEDIR__
+
+Name: libv
+Description: MustDB common C utility and network library
+Version: __VERSION__
+Cflags: -I${includedir}
+Libs: -L${libdir} -lv -pthread
+Libs.private: -pthread

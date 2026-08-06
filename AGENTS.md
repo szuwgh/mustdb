@@ -1,4 +1,4 @@
-# VectorBase — Claude Code 项目指令
+# MustDB — Claude Code 项目指令
 
 ## 规则
 1. 每次回复我前请叫我师父
@@ -10,9 +10,9 @@
 ## 项目结构
 
 ```
-vectorbase/
-├── src/                  # 基础库 (libvectorbase.a) — 构建：make -C src
-│   ├── vb_type.h         # 基础类型：u8/u16/u32/u64/i32/i64/f32/f64/usize/block_id_t
+mustdb/
+├── src/                  # 基础库 (libmustdb.a) — 构建：make -C src
+│   ├── mustdb_type.h         # 基础类型：u8/u16/u32/u64/i32/i64/f32/f64/usize/block_id_t
 │   ├── interface.h       # DEFINE_CLASS / EXTENDS / VCALL 虚方法宏
 │   ├── storage.h         # BlockManager, Block, BLOCK_SIZE=8192
 │   ├── catalog.h/c       # 顶层 Catalog / SchemaCatalogEntry
@@ -24,10 +24,10 @@ vectorbase/
 ```
 
 ## AI 修改边界（强制）
-- `tmp/pgvectorbasetmp` 是PG插件实验场：AI 可以在这里验证方案、写原型、跑测试、积累可迁移经验。
+- `tmp/pg_mustdb_tmp` 是PG插件实验场：AI 可以在这里验证方案、写原型、跑测试、积累可迁移经验。
 - `tmp/src` 是实验场：AI 可以在这里验证方案、写原型、跑测试、积累可迁移经验。
 - `src` 是产品化核心：AI **不得直接修改 `src/` 下任何代码或头文件**。
-- `pgvectorbase` 是PG插件产品化核心：AI **不得直接修改 `pgvectorbase/` 下任何代码或头文件**。
+- `pg_mustdb` 是PG插件产品化核心：AI **不得直接修改 `pg_mustdb/` 下任何代码或头文件**。
 - 如果用户要把 `tmp/src` 经验迁移到 `src`，AI 只能做分析、设计、拆任务、指出参考代码和风险；具体 `src` 代码由用户自己手写。
 - AI 不得把 `tmp/src` 文件整块复制到 `src`，也不得用“清理/同步/顺手修复”为理由改动 `src`。
 - 只有当用户在当前对话中明确写出“允许你修改 `src/...` 具体文件”时，AI 才能触碰对应文件；授权必须是文件级或任务级的，不能默认扩展到整个 `src/`。
@@ -52,6 +52,23 @@ make -C tmp clean
 `make -C src clean && make -C src`。
 
 ## 核心架构
+
+### 单文件存储原则（嵌入式默认路线）
+
+MustDB 的嵌入式存储目标是类似 SQLite / DuckDB 的**单文件数据库**：
+一个 `.mustdb` 文件拷贝到其他机器或目录后，应该可以独立打开和使用。
+
+- **主数据文件**：payload/RowStore、B-Tree、VectorIndex LSM segment、全文索引 segment、manifest/free map 等长期状态都应进入同一个 `.mustdb` 文件。
+- **WAL 文件**：采用 sidecar WAL（例如 `.mustdb.wal`），用于事务提交与崩溃恢复；checkpoint 成功后可以删除/截断。不要把长期 WAL 当成主数据长期组成部分。
+- **分配单位**：单文件内部统一按 8KB page 分配；大对象、vector segment、FTS segment 使用连续或多段 page range / extent 存储。
+- **Segment 首页头**：多 page segment 的第一页必须写 `MustDbSegmentHeader`，记录 `kind/segment_id/payload_offset/payload_size/page_count`。manifest/free map 仍是权威，header 只做自描述、校验和恢复辅助。
+- **BlockManager 边界**：嵌入式路径优先使用 `sfdb-backed BlockManager`；上层模块不直接假设普通目录文件，也不直接管理裸文件 offset。
+- **VectorIndex compact**：compact 时写新 segment page range → 发布新 manifest → 旧 segment page range 进入 free extent map。不得让旧 segment 永久悬挂导致文件无限增长。
+- **free extent map**：长期写入和 compact 产生的空闲 page 必须回收到 free map；文件尾部连续空闲 page 可以 tail truncate。
+- **VACUUM FULL**：走 PG 风格路线：扫描 live heap tuple → 重写新 `.mustdb` → 重建所有索引 → rename 替换旧文件。不要试图原地维护旧 CTID；VACUUM FULL 后旧 CTID/ItemPointer 语义上失效。
+- **普通 VACUUM**：只做页内 prune、free_list/free map 回收和可复用空间维护，不移动 live tuple，不改变 CTID。
+- **GPU 预留**：vector segment 在单文件中仍应保持大块连续布局，便于未来 mmap / pinned memory / GPU buffer 加载；不要把向量长期拆散进 heap tuple body。
+- **PG 插件适配**：PG adapter 可以复用同一套核心文件格式/索引库，但 PG 侧只做 wrapper、AM、worker、错误处理和路径适配，不应把核心逻辑重新实现一份。
 
 ### 物理地址：ctid（唯一标识符）
 
@@ -84,47 +101,47 @@ typedef struct {
     void (*load_blocks)(TableAm* am, BlockManager* bm, MetaBlockReader* r);
     u64  (*count)(TableAm* am);
     void (*destroy)(TableAm* am);
-    void (*append_chunk)(TableAm* am, const VbChunk* chunk, TamInsertCtx* ctx);
-    int  (*read_chunk)(TableAm* am, const TamReadCtx* ctx, VbChunk* out_chunk,
+    void (*append_chunk)(TableAm* am, const MustDbChunk* chunk, TamInsertCtx* ctx);
+    int  (*read_chunk)(TableAm* am, const TamReadCtx* ctx, MustDbChunk* out_chunk,
                        usize* out_idx, usize count);
 } TamRoutine;
 ```
 
-### VbChunk / VectorBase 设计哲学
+### MustDbChunk / MustDbVector 设计哲学
 
-**VectorBase 是统一的向量原语**——既可以是嵌入式向量，也可以是行式向量：
+**MustDbVector 是统一的向量原语**——既可以是嵌入式向量，也可以是行式向量：
 
 ```c
 typedef struct {
     TypeID     type;   // TYPE_FLOAT32 / TYPE_INT64 / ...
     usize      count;  // count=dim → 嵌入向量；count=1 → 标量
     data_ptr_t data;   // 指向实际数据的指针
-} VectorBase;
+} MustDbVector;
 ```
 
-**VbChunk 是统一的批量数据容器**，`append_chunk`（数据入）与 `read_chunk`（数据出）完全对称：
+**MustDbChunk 是统一的批量数据容器**，`append_chunk`（数据入）与 `read_chunk`（数据出）完全对称：
 
 ```
-VBCHUNK_EMBED 模式（行格式）：
-  arrays[i]    → 第 i 行的嵌入向量  VectorBase{FLOAT32, dim, f32*}
+MUSTDBCHUNK_EMBED 模式（行格式）：
+  arrays[i]    → 第 i 行的嵌入向量  MustDbVector{FLOAT32, dim, f32*}
   payloads[i]  → 第 i 行的 HEAP 用户列  RowVal[user_cols]
   col_rows[i]  → 第 i 行的标量列   RowVal[ncols]
 
-VBCHUNK_COLUMN 模式（列格式）：
-  arrays[i]    → 第 i 列的所有行值  VectorBase{TypeID, nrows, data*}
+MUSTDBCHUNK_COLUMN 模式（列格式）：
+  arrays[i]    → 第 i 列的所有行值  MustDbVector{TypeID, nrows, data*}
 ```
 
 **read_chunk 字段归属**（引擎不修改 `*out_idx`，由 orchestrator 管理）：
 
 | 引擎 | 写入字段 | 数据类型 |
 |------|---------|---------|
-| `TamEmbTable` | `out_chunk->arrays[*out_idx]` | `VectorBase{FLOAT32, dim, f32*}` 零拷贝 |
+| `TamEmbTable` | `out_chunk->arrays[*out_idx]` | `MustDbVector{FLOAT32, dim, f32*}` 零拷贝 |
 | `TamColTable` | `out_chunk->col_rows[*out_idx]` | `RowVal[ncols]` |
 | `TamHeapTable` | `out_chunk->payloads[*out_idx]` | `RowVal[user_cols]` |
 
 `get(seq_idx)` 使用顺序索引，不是 ctid。三个引擎地址空间不同（heap_ctid ≠ emb_ctid ≠
 col_seq_idx），无法统一用 ctid。`fill_out_vals` 通过 `read_chunk` vtable 调度各引擎，
-再由 bridge 步骤将 VbChunk 压平为 RowVal* `[COL scalars..., EMB vector, HEAP user cols...]`。
+再由 bridge 步骤将 MustDbChunk 压平为 RowVal* `[COL scalars..., EMB vector, HEAP user cols...]`。
 
 ### 批量插入上下文（TamInsertCtx）
 
@@ -370,7 +387,7 @@ typedef struct { u64 id; u64 emb_ctid_packed; f32 distance; } SearchResult;
 void result_heap_push(heap, id, itemptr_pack(node->emb_ctid), dist);
 
 // 批量插入（唯一公开插入入口）
-void storage_table_insert_datachunk(StorageTable*, const VbChunk*, const u64* row_ids);
+void storage_table_insert_datachunk(StorageTable*, const MustDbChunk*, const u64* row_ids);
 
 // vtable 宏
 TAM_APPEND(am, data)                              // 单行追加，无 seq_idx 参数

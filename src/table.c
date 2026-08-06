@@ -3,11 +3,11 @@
 #include <assert.h>
 #include "table.h"
 #include "segment.h"
-#include "vb_type.h"
+#include "mustdb_type.h"
 #include "vector.h"
 #include "operator.h"
 
-static void heapTable_append(TableAmRoutine* am, VectorBase* v, TupleVal* payloads,
+static void heapTable_append(TableAmRoutine* am, MustDbVector* v, TupleVal* payloads,
                              usize n_payloads);
 static void heapTable_append_chunk(TableAmRoutine* am, const DataChunk* chunk, TamInsertCtx* ctx);
 static int heapTable_scan(TableAmRoutine* am, TamScanCtx* ctx, TableQueryResult* results,
@@ -16,7 +16,7 @@ static void heapTable_write_blocks(TableAmRoutine* am, BlockManager* bm, MetaBlo
 static void heapTable_load_blocks(TableAmRoutine* am, BlockManager* bm, MetaBlockReader* r);
 static void heapTable_destory(TableAmRoutine* am);
 
-static void embeddingHeapTable_append(TableAmRoutine* am, VectorBase* v, TupleVal* payloads,
+static void embeddingHeapTable_append(TableAmRoutine* am, MustDbVector* v, TupleVal* payloads,
                                       usize n_payloads);
 static void embeddingHeapTable_append_chunk(TableAmRoutine* am, const DataChunk* chunk,
                                             TamInsertCtx* ctx);
@@ -63,10 +63,10 @@ DataTable* Datatable_create(StorageManager* manager, char* schema_name, char* ta
 void DataChunk_init(DataChunk* chunk, Vector types)
 {
     chunk->count = types.size;
-    chunk->arrays = calloc(chunk->count, sizeof(VectorBase));
+    chunk->arrays = calloc(chunk->count, sizeof(MustDbVector));
     for (usize i = 0; i < chunk->count; i++)
     {
-        VectorBase_init(&chunk->arrays[i], VECTOR_AT(&types, i, TypeID));
+        MustDbVector_init(&chunk->arrays[i], VECTOR_AT(&types, i, TypeID));
     }
 
     usize size = 0;
@@ -96,7 +96,7 @@ void dataChunk_deinit(DataChunk* chunk)
     }
     else
     {
-        for (usize i = 0; i < chunk->count; i++) VectorBase_deinit(&chunk->arrays[i]);
+        for (usize i = 0; i < chunk->count; i++) MustDbVector_deinit(&chunk->arrays[i]);
     }
     free(chunk->arrays);
     chunk->arrays = NULL;
@@ -125,7 +125,7 @@ void dataChunk_reset(DataChunk* chunk)
 }
 
 /* 用给定列向量覆盖指定位置的列描述。 */
-void dataChunk_append(DataChunk* chunk, usize index, VectorBase src)
+void dataChunk_append(DataChunk* chunk, usize index, MustDbVector src)
 {
     assert(index < chunk->count);
     chunk->arrays[index] = src;
@@ -194,7 +194,7 @@ static void build_heap_tuple(const HeapTable* heap, ItemPtr emb_ctid, const Tupl
 }
 
 /* 执行一次 heap 侧真实插入，必要时从批量上下文读取 emb_ctid 和 xid。 */
-static void heapTable_append_impl(TableAmRoutine* am, TamInsertCtx* ctx, VectorBase* v,
+static void heapTable_append_impl(TableAmRoutine* am, TamInsertCtx* ctx, MustDbVector* v,
                                   const Datum* val, usize n_payloads)
 {
     HeapTable* ht = (HeapTable*)am;
@@ -207,7 +207,7 @@ static void heapTable_append_impl(TableAmRoutine* am, TamInsertCtx* ctx, VectorB
 }
 
 /* 处理单行 heap 追加；当前路径不携带 embedding 位置。 */
-static void heapTable_append(TableAmRoutine* am, VectorBase* v, TupleVal* payloads,
+static void heapTable_append(TableAmRoutine* am, MustDbVector* v, TupleVal* payloads,
                              usize n_payloads)
 {
     HeapTable* ht = (HeapTable*)am;
@@ -300,7 +300,7 @@ void EmbeddingHeapTable_init(EmbeddingHeapTable* table, i16 dimension, const Tab
 }
 
 /* 处理组合表的单行追加；当前未实现具体逻辑。 */
-static void embeddingHeapTable_append(TableAmRoutine* am, VectorBase* v, TupleVal* payloads,
+static void embeddingHeapTable_append(TableAmRoutine* am, MustDbVector* v, TupleVal* payloads,
                                       usize n_payloads)
 {
     (void)am;
@@ -410,7 +410,7 @@ static int embeddingHeapTable_scan_chunk(TableAmRoutine* am, TamScanCtx* ctx,
         if (!item_ptr_is_valid(hdr->t_emb_ctid)) continue;
         const f32* vec = embedding_store_get_ptr_ctid(&et->embed_store, hdr->t_emb_ctid);
         if (!vec) continue;
-        VectorBase stored = {TYPE_FLOAT32, vc->query.count, (data_ptr_t)vec};
+        MustDbVector stored = {TYPE_FLOAT32, vc->query.count, (data_ptr_t)vec};
         f32 dist = vec_compute_distance(&stored, &vc->query, vc->metric);
 
         if (ksz == heap_cap && dist >= topk[0].dist) continue;

@@ -1,5 +1,5 @@
-EXTENSION = pgvectorbase
-MODULE_big = pgvectorbase
+EXTENSION = pg_mustdb
+MODULE_big = pg_mustdb
 
 SRCDIR = src
 
@@ -9,7 +9,7 @@ PG_CPPFLAGS += -Isrc/include
 # 转换为 .o
 OBJS = $(SRCS:.c=.o)
 
-DATA = pgvectorbase--0.1.0.sql
+DATA = pg_mustdb--0.1.0.sql
 
 UD_CONFIG ?= /home/unvdb/unvdb-tx/bin/ud_config
 PG_CONFIG = $(UD_CONFIG)

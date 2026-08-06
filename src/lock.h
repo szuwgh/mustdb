@@ -1,5 +1,5 @@
 /**
- * lock.h — Three-tier lock system for VectorBase
+ * lock.h — Three-tier lock system for MustDbVector
  *
  * A faithful port of PostgreSQL's SpinLock / LWLock / RegularLock hierarchy.
  *
@@ -7,8 +7,8 @@
  * Tier 2: LWLock      — lightweight read/write lock; single atomic word
  * Tier 3: RegularLock — full deadlock-detecting lock manager (LOCKTAG-based)
  *
- * This is a self-contained module: do NOT include vb_type.h here.
- * All thread-using code must call VbProcInit() once per thread.
+ * This is a self-contained module: do NOT include mustdb_type.h here.
+ * All thread-using code must call MustDbProcInit() once per thread.
  */
 
 #ifndef LOCK_H
@@ -107,10 +107,10 @@ typedef pthread_mutex_t slock_t;
 #define SpinLockFree(lock)    pthread_mutex_destroy(lock)
 
 /* ============================================================
- * VbProcInit / VbProcRelease — 嵌入式无需手动管理线程槽
+ * MustDbProcInit / MustDbProcRelease — 嵌入式无需手动管理线程槽
  * ============================================================ */
-static inline void VbProcInit(void) {}
-static inline void VbProcRelease(void) {}
+static inline void MustDbProcInit(void) {}
+static inline void MustDbProcRelease(void) {}
 
 /* ============================================================
  * LockSubsystemInit — 嵌入式无需全局初始化

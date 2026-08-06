@@ -1,5 +1,5 @@
-#ifndef VECTORBASE_VECTOR_WRAPPER_H
-#define VECTORBASE_VECTOR_WRAPPER_H
+#ifndef MUSTDB_VECTOR_WRAPPER_H
+#define MUSTDB_VECTOR_WRAPPER_H
 
 #if defined(__has_include)
 #  if __has_include("libv/vector.h")
@@ -11,4 +11,4 @@
 #  include "../libv/src/include/vector.h"
 #endif
 
-#endif /* VECTORBASE_VECTOR_WRAPPER_H */
+#endif /* MUSTDB_VECTOR_WRAPPER_H */

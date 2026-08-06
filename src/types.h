@@ -1,6 +1,6 @@
 #ifndef TYPES_H
 #define TYPES_H
-#include "vb_type.h"
+#include "mustdb_type.h"
 #include "vector.h"
 #include "interface.h"
 
@@ -24,16 +24,16 @@ typedef struct
     TypeID type;
     usize count;
     data_ptr_t data;
-} VectorBase;
+} MustDbVector;
 
-void VectorBase_init(VectorBase* vector, TypeID type);
+void MustDbVector_init(MustDbVector* vector, TypeID type);
 
-void VectorBase_from_vector(VectorBase* vector, Vector src, TypeID type);
+void MustDbVector_from_vector(MustDbVector* vector, Vector src, TypeID type);
 
-void VectorBase_deinit(VectorBase* vector);
+void MustDbVector_deinit(MustDbVector* vector);
 
-usize VectorBase_size(VectorBase* vector);
+usize MustDbVector_size(MustDbVector* vector);
 
-data_ptr_t VectorBase_get_data(VectorBase* vector);
+data_ptr_t MustDbVector_get_data(MustDbVector* vector);
 
 #endif

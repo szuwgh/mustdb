@@ -203,7 +203,7 @@ void test_fileBuffer_read_write(void)
     FileHandle* fh = create_mem_file_handle(mf);
 
     // Write test data
-    const char* test_data = "Hello, VectorBase FileBuffer Test!";
+    const char* test_data = "Hello, MustDB FileBuffer Test!";
     memcpy(fb->buffer, test_data, strlen(test_data) + 1);
 
     // Write to memory file

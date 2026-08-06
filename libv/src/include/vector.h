@@ -1,7 +1,7 @@
 #ifndef VECTOR_H
 #define VECTOR_H
 
-#include "vb_type.h"
+#include "mustdb_type.h"
 #include <sys/types.h>
 
 /**

@@ -4,7 +4,7 @@
 #include "interface.h"
 #include "segment.h"
 #include "types.h"
-#include "vb_type.h"
+#include "mustdb_type.h"
 #include "lock.h"
 
 typedef struct TableSchema TableSchema;
@@ -71,7 +71,7 @@ typedef struct
  * By-reference types (TEXT, BYTEA, JSONB):
  *   Stored as pointer (PointerGetDatum), in-memory layout:
  *     TEXT / BYTEA: [u32 content_len][data bytes...]
- *     JSONB:        VbJsonb* — vl_len_ bytes total (includes 4-byte header)
+ *     JSONB:        MustDbJsonb* — vl_len_ bytes total (includes 4-byte header)
  *
  * null_bits (u64 in TupleHdr): bit i set → col i is NULL → Datum[i] undefined.
  * ============================================================ */
@@ -117,7 +117,7 @@ static inline f64 DatumGetFloat64(Datum d)
 /* ---- By-reference ---- */
 #define PointerGetDatum(p) ((Datum)(uintptr_t)(const void*)(p))
 #define DatumGetPointer(d) ((void*)(uintptr_t)(d))
-#define DatumGetJsonb(d)   ((VbJsonb*)DatumGetPointer(d))
+#define DatumGetJsonb(d)   ((MustDbJsonb*)DatumGetPointer(d))
 #define JsonbGetDatum(jb)  PointerGetDatum(jb)
 
 typedef u32 CommandId;
@@ -152,7 +152,7 @@ typedef struct
 } HeapTuple;
 
 /* EmbeddingStore — forward declaration only.
- * Full struct body is defined in src/store.c (for libvectorbase.a)
+ * Full struct body is defined in src/store.c (for libmustdb.a)
  * and in tmp/src/embedding_store.h (for tmp/ build).
  * Using forward decl here avoids a conflicting-types error when
  * tmp/src/ TUs include both this header and tmp/src/embedding_store.h. */
@@ -160,7 +160,7 @@ typedef struct EmbeddingStore EmbeddingStore;
 
 void EmbeddingStore_init(EmbeddingStore* store, i16 dimension);
 void EmbeddingStore_deinit(EmbeddingStore* store);
-ItemPtr embeddingStore_append_and_get_ctid(EmbeddingStore* store, VectorBase* vec);
+ItemPtr embeddingStore_append_and_get_ctid(EmbeddingStore* store, MustDbVector* vec);
 const f32* embedding_store_get_ptr_ctid(EmbeddingStore* store, ItemPtr emb_ctid);
 
 typedef struct

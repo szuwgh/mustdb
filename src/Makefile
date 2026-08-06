@@ -9,14 +9,14 @@ INCLUDEDIR ?= $(PREFIX)/include
 
 LIBV_OBJS = $(LIBV_DIR)/build/obj/core/hash.o \
             $(LIBV_DIR)/build/obj/core/vector.o \
-            $(LIBV_DIR)/build/obj/core/vb_type.o \
+            $(LIBV_DIR)/build/obj/core/mustdb_type.o \
             $(LIBV_DIR)/build/obj/net/net.o \
             $(LIBV_DIR)/build/obj/net/conn.o
-MOVED_TO_LIBV_SRCS = hash.c vector.c vb_type.c
+MOVED_TO_LIBV_SRCS = hash.c vector.c mustdb_type.c
 SRCS = $(filter-out $(MOVED_TO_LIBV_SRCS),$(wildcard *.c))
 OBJS = $(SRCS:.c=.o)
 
-LIBNAME = vectorbase
+LIBNAME = mustdb
 STATIC_LIB = lib$(LIBNAME).a
 SHARED_LIB = lib$(LIBNAME).so
 

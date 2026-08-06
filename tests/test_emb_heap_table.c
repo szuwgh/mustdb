@@ -43,7 +43,7 @@ static const TableSchema empty_schema = {.cols = no_cols, .ncols = 0};
 /* ================================================================
  * Helper: fill a DataChunk for EMBED mode (no payload columns)
  * ================================================================ */
-static void make_chunk(DataChunk* c, VectorBase* vecs, usize n)
+static void make_chunk(DataChunk* c, MustDbVector* vecs, usize n)
 {
     memset(c, 0, sizeof(*c));
     c->mode       = CHUNK_EMBED;
@@ -67,7 +67,7 @@ static void test_append_chunk_fills_emb_ctids(void)
     f32 d1[4] = {0.0f, 1.0f, 0.0f, 0.0f};
     f32 d2[4] = {0.0f, 0.0f, 1.0f, 0.0f};
 
-    VectorBase vecs[3] = {
+    MustDbVector vecs[3] = {
         {TYPE_FLOAT32, 4, (data_ptr_t)d0},
         {TYPE_FLOAT32, 4, (data_ptr_t)d1},
         {TYPE_FLOAT32, 4, (data_ptr_t)d2},
@@ -112,7 +112,7 @@ static void test_scan_returns_nearest_neighbour(void)
     f32 d1[4] = {0.0f, 1.0f, 0.0f, 0.0f};
     f32 d2[4] = {0.0f, 0.0f, 1.0f, 0.0f};
 
-    VectorBase vecs[3] = {
+    MustDbVector vecs[3] = {
         {TYPE_FLOAT32, 4, (data_ptr_t)d0},
         {TYPE_FLOAT32, 4, (data_ptr_t)d1},
         {TYPE_FLOAT32, 4, (data_ptr_t)d2},
@@ -170,7 +170,7 @@ static void test_scan_sorted_nearest_first(void)
     f32 d2[2] = { 0.0f,  0.0f};
     f32 d3[2] = {-1.0f,  0.0f};
 
-    VectorBase vecs[4] = {
+    MustDbVector vecs[4] = {
         {TYPE_FLOAT32, 2, (data_ptr_t)d0},
         {TYPE_FLOAT32, 2, (data_ptr_t)d1},
         {TYPE_FLOAT32, 2, (data_ptr_t)d2},
@@ -230,9 +230,9 @@ static void test_scan_respects_k_limit(void)
         { 0.0f, -1.0f},
         { 0.5f,  0.5f},
     };
-    VectorBase vecs[5];
+    MustDbVector vecs[5];
     for (int i = 0; i < 5; i++)
-        vecs[i] = (VectorBase){TYPE_FLOAT32, 2, (data_ptr_t)data[i]};
+        vecs[i] = (MustDbVector){TYPE_FLOAT32, 2, (data_ptr_t)data[i]};
 
     DataChunk chunk;
     make_chunk(&chunk, vecs, 5);
@@ -274,7 +274,7 @@ static void test_scan_cosine_metric(void)
     f32 d1[3] = {1.0f, 0.0f, 0.0f};   /* cosine dist to q: ~0.29 */
     f32 d2[3] = {0.0f, 0.0f, 1.0f};   /* cosine dist to q: 1.0  (orthogonal) */
 
-    VectorBase vecs[3] = {
+    MustDbVector vecs[3] = {
         {TYPE_FLOAT32, 3, (data_ptr_t)d0},
         {TYPE_FLOAT32, 3, (data_ptr_t)d1},
         {TYPE_FLOAT32, 3, (data_ptr_t)d2},
@@ -315,7 +315,7 @@ static void test_two_append_chunks(void)
     /* Batch 1: 2 vectors */
     f32 b1d0[2] = {1.0f, 0.0f};
     f32 b1d1[2] = {0.0f, 1.0f};
-    VectorBase vecs1[2] = {
+    MustDbVector vecs1[2] = {
         {TYPE_FLOAT32, 2, (data_ptr_t)b1d0},
         {TYPE_FLOAT32, 2, (data_ptr_t)b1d1},
     };
@@ -328,7 +328,7 @@ static void test_two_append_chunks(void)
     /* Batch 2: 2 more vectors */
     f32 b2d0[2] = {-1.0f,  0.0f};
     f32 b2d1[2] = { 0.0f, -1.0f};
-    VectorBase vecs2[2] = {
+    MustDbVector vecs2[2] = {
         {TYPE_FLOAT32, 2, (data_ptr_t)b2d0},
         {TYPE_FLOAT32, 2, (data_ptr_t)b2d1},
     };

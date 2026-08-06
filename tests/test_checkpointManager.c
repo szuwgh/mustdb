@@ -28,7 +28,7 @@ static int fail_count = 0;
 #define CHECK(cond, pass_msg, fail_msg) \
     do { if (cond) { PASS(pass_msg); } else { FAIL(fail_msg); } } while (0)
 
-static const char* TEST_DB = "/tmp/test_checkpoint_vb.db";
+static const char* TEST_DB = "/tmp/test_checkpoint_mustdb.db";
 static void cleanup_db(void) { unlink(TEST_DB); }
 
 /* ============================================================

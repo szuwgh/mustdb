@@ -15,7 +15,7 @@ static void ivfflatcostestimate(PlannerInfo* root, IndexPath* path, double loop_
 static bytea* ivfflatoptions(Datum reloptions, bool validate)
 {
     if (validate && PointerIsValid(DatumGetPointer(reloptions)))
-        ereport(ERROR, (errmsg("vb_ivf index options are not supported yet")));
+        ereport(ERROR, (errmsg("mustdb_ivf index options are not supported yet")));
 
     return NULL;
 }
@@ -25,8 +25,8 @@ static bool ivfflatvalidate(Oid opclassoid)
     return true;
 }
 
-PG_FUNCTION_INFO_V1(vb_ivfflathandler);
-Datum vb_ivfflathandler(PG_FUNCTION_ARGS)
+PG_FUNCTION_INFO_V1(mustdb_ivfflathandler);
+Datum mustdb_ivfflathandler(PG_FUNCTION_ARGS)
 {
     IndexAmRoutine* amroutine = makeNode(IndexAmRoutine);
     amroutine->amstrategies = 0;

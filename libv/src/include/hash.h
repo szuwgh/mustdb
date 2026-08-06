@@ -1,6 +1,6 @@
 #ifndef HASH_H
 #define HASH_H
-#include "vb_type.h"
+#include "mustdb_type.h"
 
 #define HMAP_DEFAULT_NBUCKETS 16
 

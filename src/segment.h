@@ -1,6 +1,6 @@
 #ifndef SEGMENT_H
 #define SEGMENT_H
-#include "vb_type.h"
+#include "mustdb_type.h"
 #include "vector.h"
 #include "interface.h"
 #include "storage.h"

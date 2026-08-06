@@ -1,4 +1,4 @@
 #ifndef TRANSACTION_H
 #define TRANSACTION_H
-#include "vb_type.h"
+#include "mustdb_type.h"
 #endif

@@ -1,5 +1,5 @@
-#ifndef VB_TYPE_H
-#define VB_TYPE_H
+#ifndef MUSTDB_TYPE_H
+#define MUSTDB_TYPE_H
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -61,4 +61,4 @@ typedef u64 TxnId;
 
 #define NEW(type, ...) type##_create(__VA_ARGS__)
 
-#endif // VB_TYPE_H
+#endif // MUSTDB_TYPE_H

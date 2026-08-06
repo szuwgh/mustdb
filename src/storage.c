@@ -8,7 +8,7 @@
 #include "interface.h"
 #include "parser.h"
 #include "types.h"
-#include "vb_type.h"
+#include "mustdb_type.h"
 #include "vector.h"
 #include "table.h"
 #include "operator.h"
@@ -790,7 +790,7 @@ static void tableDataWriter_writecolumndata(TableDataWriter* self, DataChunk* ch
     TableDataWriter_flush_if_full(self, column_index, size);
     data_ptr_t ptr = VECTOR_AT(&self->blocks, column_index, Block*)->fb->buffer +
                      VECTOR_AT(&self->offsets, column_index, usize);
-    VectorBase source = chunk->arrays[column_index];
+    MustDbVector source = chunk->arrays[column_index];
     copy_to_storage(&source, ptr, 0, source.count);
 
     usize new_offset = VECTOR_AT(&self->offsets, column_index, usize) + size;

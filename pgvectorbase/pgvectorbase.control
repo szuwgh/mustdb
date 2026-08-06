@@ -1,4 +1,0 @@
-comment = 'VectorBase decoupled vector index extension scaffold'
-default_version = '0.1.0'
-module_pathname = '$libdir/pgvectorbase'
-relocatable = true

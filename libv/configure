@@ -1,0 +1,91 @@
+#!/bin/sh
+set -eu
+
+PREFIX=/usr/local
+EXEC_PREFIX=
+LIBDIR=
+INCLUDEDIR=
+PKGCONFIGDIR=
+BUILD_DIR=
+VERSION=0.1.0
+
+CC=${CC:-cc}
+AR=${AR:-ar}
+CFLAGS=${CFLAGS:-"-std=c11 -Wall -Wextra -Werror -O2 -g -fPIC"}
+
+usage()
+{
+    cat <<'EOF'
+Usage: ./configure [OPTIONS]
+
+Options:
+  --prefix=PATH         installation prefix [/usr/local]
+  --exec-prefix=PATH    architecture-dependent prefix [PREFIX]
+  --libdir=PATH         library install directory [EXEC_PREFIX/lib]
+  --includedir=PATH     header install directory [PREFIX/include]
+  --pkgconfigdir=PATH   pkg-config install directory [LIBDIR/pkgconfig]
+  --build-dir=PATH      build output directory [TOPDIR/build]
+  --cc=CC              C compiler [cc or $CC]
+  --ar=AR              static archive tool [ar or $AR]
+  --version=VERSION     package version [0.1.0]
+  --help               show this help
+EOF
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        --prefix=*) PREFIX=${arg#--prefix=} ;;
+        --exec-prefix=*) EXEC_PREFIX=${arg#--exec-prefix=} ;;
+        --libdir=*) LIBDIR=${arg#--libdir=} ;;
+        --includedir=*) INCLUDEDIR=${arg#--includedir=} ;;
+        --pkgconfigdir=*) PKGCONFIGDIR=${arg#--pkgconfigdir=} ;;
+        --build-dir=*) BUILD_DIR=${arg#--build-dir=} ;;
+        --cc=*) CC=${arg#--cc=} ;;
+        --ar=*) AR=${arg#--ar=} ;;
+        --version=*) VERSION=${arg#--version=} ;;
+        --help) usage; exit 0 ;;
+        *) echo "configure: unknown option: $arg" >&2; usage >&2; exit 1 ;;
+    esac
+done
+
+EXEC_PREFIX=${EXEC_PREFIX:-$PREFIX}
+LIBDIR=${LIBDIR:-$EXEC_PREFIX/lib}
+INCLUDEDIR=${INCLUDEDIR:-$PREFIX/include}
+PKGCONFIGDIR=${PKGCONFIGDIR:-$LIBDIR/pkgconfig}
+BUILD_DIR=${BUILD_DIR:-'$(TOPDIR)/build'}
+
+if [ ! -f Makefile.in ]; then
+    echo "configure: Makefile.in not found" >&2
+    exit 1
+fi
+
+sed \
+    -e "s|@VERSION@|$VERSION|g" \
+    -e "s|@BUILD_DIR@|$BUILD_DIR|g" \
+    -e "s|@PREFIX@|$PREFIX|g" \
+    -e "s|@EXEC_PREFIX@|$EXEC_PREFIX|g" \
+    -e "s|@LIBDIR@|$LIBDIR|g" \
+    -e "s|@INCLUDEDIR@|$INCLUDEDIR|g" \
+    -e "s|@PKGCONFIGDIR@|$PKGCONFIGDIR|g" \
+    -e "s|@CC@|$CC|g" \
+    -e "s|@AR@|$AR|g" \
+    -e "s|@CFLAGS@|$CFLAGS|g" \
+    Makefile.in > Makefile
+
+cat <<EOF
+Configured libv:
+  VERSION=$VERSION
+  CC=$CC
+  AR=$AR
+  CFLAGS=$CFLAGS
+  PREFIX=$PREFIX
+  EXEC_PREFIX=$EXEC_PREFIX
+  LIBDIR=$LIBDIR
+  INCLUDEDIR=$INCLUDEDIR
+  PKGCONFIGDIR=$PKGCONFIGDIR
+  BUILD_DIR=$BUILD_DIR
+
+Now run:
+  make
+  make install
+EOF

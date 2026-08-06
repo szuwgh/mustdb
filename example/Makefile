@@ -2,9 +2,9 @@ CC       ?= cc
 CFLAGS   ?= -O2 -Wall -Wextra
 
 # Installed library paths (produced by `make install` from project root)
-LIBDIR     = ../libvectorbase/lib
-INCLUDEDIR = ../libvectorbase/include
-STATIC_LIB = $(LIBDIR)/libvectorbase.a
+LIBDIR     = ../libmustdb/lib
+INCLUDEDIR = ../libmustdb/include
+STATIC_LIB = $(LIBDIR)/libmustdb.a
 
 CFLAGS  += -I$(INCLUDEDIR)
 LDFLAGS  = -lm

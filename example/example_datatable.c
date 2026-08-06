@@ -1,5 +1,5 @@
 /*
- * example_datatable.c — VectorBase columnar storage demo
+ * example_datatable.c — MustDbVector columnar storage demo
  *
  * Demonstrates:
  *   1. Creating a DataTable with four typed columns
@@ -96,7 +96,7 @@ static void print_table(DataTable* table, const char** column_names, usize* colu
     DataChunk output;
     DataChunk_init(&output, col_count);
     for (usize c = 0; c < col_count; c++)
-        output.columns[c] = (VectorBase){
+        output.columns[c] = (MustDbVector){
             .type = table->column_types[proj[c]],
             .count = 0,
             .data = malloc(STORAGE_CHUNK_SIZE * elem_sz[c]),
@@ -221,7 +221,7 @@ int main(void)
 
     DataTable* table = Datatable_create(NULL, "public", "users", NUM_COLS, column_types);
 
-    printf("VectorBase DataTable Example\n");
+    printf("MustDbVector DataTable Example\n");
     printf("============================\n\n");
     printf("Schema: public.users  (%zu columns)\n\n", NUM_COLS);
 
@@ -241,18 +241,18 @@ int main(void)
 
     DataChunk chunk;
     DataChunk_init(&chunk, NUM_COLS);
-    chunk.arrays[0] = (VectorBase){TYPE_INT64, 5, (data_ptr_t)&ids[0]};
-    chunk.arrays[1] = (VectorBase){TYPE_INT32, 5, (data_ptr_t)&ages[0]};
-    chunk.arrays[2] = (VectorBase){TYPE_FLOAT32, 5, (data_ptr_t)&scores[0]};
-    chunk.arrays[3] = (VectorBase){TYPE_FLOAT64, 5, (data_ptr_t)&balances[0]};
+    chunk.arrays[0] = (MustDbVector){TYPE_INT64, 5, (data_ptr_t)&ids[0]};
+    chunk.arrays[1] = (MustDbVector){TYPE_INT32, 5, (data_ptr_t)&ages[0]};
+    chunk.arrays[2] = (MustDbVector){TYPE_FLOAT32, 5, (data_ptr_t)&scores[0]};
+    chunk.arrays[3] = (MustDbVector){TYPE_FLOAT64, 5, (data_ptr_t)&balances[0]};
     datatable_append(table, &chunk);
 
     /* ========== 4. Append — second batch (rows 5..9) ========== */
 
-    chunk.arrays[0] = (VectorBase){TYPE_INT64, 5, (data_ptr_t)&ids[5]};
-    chunk.arrays[1] = (VectorBase){TYPE_INT32, 5, (data_ptr_t)&ages[5]};
-    chunk.arrays[2] = (VectorBase){TYPE_FLOAT32, 5, (data_ptr_t)&scores[5]};
-    chunk.arrays[3] = (VectorBase){TYPE_FLOAT64, 5, (data_ptr_t)&balances[5]};
+    chunk.arrays[0] = (MustDbVector){TYPE_INT64, 5, (data_ptr_t)&ids[5]};
+    chunk.arrays[1] = (MustDbVector){TYPE_INT32, 5, (data_ptr_t)&ages[5]};
+    chunk.arrays[2] = (MustDbVector){TYPE_FLOAT32, 5, (data_ptr_t)&scores[5]};
+    chunk.arrays[3] = (MustDbVector){TYPE_FLOAT64, 5, (data_ptr_t)&balances[5]};
     datatable_append(table, &chunk);
     free(chunk.columns);
 

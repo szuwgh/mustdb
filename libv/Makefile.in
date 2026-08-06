@@ -1,18 +1,18 @@
 PROJECT := libv
 TOPDIR := $(CURDIR)
 
-VERSION := 0.1.0
-BUILD_DIR := $(TOPDIR)/build
+VERSION := @VERSION@
+BUILD_DIR := @BUILD_DIR@
 LIBV_INCLUDE := $(TOPDIR)/src/include
-CC := cc
-AR := ar
-CFLAGS := -std=c11 -Wall -Wextra -Werror -O2 -g -fPIC
+CC := @CC@
+AR := @AR@
+CFLAGS := @CFLAGS@
 CPPFLAGS += -I$(LIBV_INCLUDE)
-PREFIX := /usr/local
-EXEC_PREFIX := /usr/local
-LIBDIR := /usr/local/lib
-INCLUDEDIR := /usr/local/include
-PKGCONFIGDIR := /usr/local/lib/pkgconfig
+PREFIX := @PREFIX@
+EXEC_PREFIX := @EXEC_PREFIX@
+LIBDIR := @LIBDIR@
+INCLUDEDIR := @INCLUDEDIR@
+PKGCONFIGDIR := @PKGCONFIGDIR@
 INSTALL ?= install
 
 CORE_SRCS := src/hash.c src/vector.c src/mustdb_type.c

@@ -1,6 +1,6 @@
 CC     ?= cc
 CFLAGS ?= -O2 -I ../src
-LDLIBS  = ../src/libvectorbase.a -lm -lpthread
+LDLIBS  = ../src/libmustdb.a -lm -lpthread
 
 TEST_SRCS = $(wildcard test_*.c)
 TEST_EXES = $(TEST_SRCS:.c=)

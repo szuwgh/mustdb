@@ -1,6 +1,6 @@
 #ifndef PARSER_H
 #define PARSER_H
-#include "vb_type.h"
+#include "mustdb_type.h"
 #include "types.h"
 
 // 前向声明，避免 parser.h → storage.h → catalog.h → parser.h 循环依赖

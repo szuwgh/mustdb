@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "../src/vectorbase.h"
+#include "../src/mustdb.h"
 #include "../src/storage.h"
 
 // Test setup and teardown
@@ -14,16 +14,16 @@ void tearDown(void)
 }
 
 // Test cases
-void test_VectorBase_initialization(void)
+void test_MustDbVector_initialization(void)
 {
-    VectorBase vb;
-    vb.storage_manager = NULL;
-    vb.catalog = NULL;
+    MustDbVector db;
+    db.storage_manager = NULL;
+    db.catalog = NULL;
 }
 
-void test_VectorBase_zero_initialization(void)
+void test_MustDbVector_zero_initialization(void)
 {
-    VectorBase vb = {0};
+    MustDbVector db = {0};
 }
 
 void test_FileBuffer_create(void)
@@ -43,5 +43,5 @@ void test_FileBuffer_create(void)
 int main(void)
 {
     test_FileBuffer_create();
-    printf("Running VectorBase tests...\n");
+    printf("Running MustDbVector tests...\n");
 }

@@ -1,6 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
-#include "vb_type.h"
+#include "mustdb_type.h"
 #include "vector.h"
 #include "catalog.h"
 #include "hash.h"

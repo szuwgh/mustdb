@@ -1,7 +1,7 @@
 #ifndef POOL_H
 #define POOL_H
 
-#include "vb_type.h"
+#include "mustdb_type.h"
 #include "storage.h"
 #include "assert.h"
 #include "lock.h"

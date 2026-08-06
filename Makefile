@@ -1,8 +1,8 @@
 CC = cc
 CFLAGS = -O2 -fPIC
-PREFIX = /home/postgres/cproject/vectorbase/libvectorbase
-LIBDIR = /home/postgres/cproject/vectorbase/libvectorbase/lib
-INCLUDEDIR = /home/postgres/cproject/vectorbase/libvectorbase/include
+PREFIX = /home/postgres/cproject/mustdb/libmustdb
+LIBDIR = /home/postgres/cproject/mustdb/libmustdb/lib
+INCLUDEDIR = /home/postgres/cproject/mustdb/libmustdb/include
 
 .PHONY: all clean install uninstall test
 
@@ -20,4 +20,4 @@ uninstall:
 	$(MAKE) -C src uninstall PREFIX=$(PREFIX) LIBDIR=$(LIBDIR) INCLUDEDIR=$(INCLUDEDIR)
 
 test:
-	$(MAKE) -C src test CC=$(CC) CFLAGS="$(CFLAGS)"
+	$(MAKE) -C tmp test CC=$(CC)

@@ -1,7 +1,7 @@
 #ifndef INDEX_H
 #define INDEX_H
 
-#include "vb_type.h"
+#include "mustdb_type.h"
 #include "interface.h"
 #include "store.h"
 #include "operator.h"

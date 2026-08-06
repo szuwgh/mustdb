@@ -2,7 +2,7 @@
 #define STORAGE_H
 
 #include <stdio.h>
-#include "vb_type.h"
+#include "mustdb_type.h"
 #include "interface.h"
 #include "vector.h"
 #include "wal.h"

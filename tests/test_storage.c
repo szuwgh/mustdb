@@ -26,7 +26,7 @@ static int g_fail = 0;
 
 #define ASSERT_NOT_NULL(ptr, msg) ASSERT_TRUE((ptr) != NULL, msg)
 
-static const char* TEST_DB = "/tmp/test_storage_vb.db";
+static const char* TEST_DB = "/tmp/test_storage_mustdb.db";
 static void cleanup_db(void) { unlink(TEST_DB); }
 
 static void free_block(Block* b) {

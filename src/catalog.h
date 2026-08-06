@@ -1,7 +1,7 @@
 #ifndef CATALOG_H
 #define CATALOG_H
 #include "interface.h"
-#include "vb_type.h"
+#include "mustdb_type.h"
 #include "hash.h"
 #include "parser.h"
 #include "vector.h"

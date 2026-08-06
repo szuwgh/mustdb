@@ -1,5 +1,5 @@
-#ifndef VECTORBASE_HASH_WRAPPER_H
-#define VECTORBASE_HASH_WRAPPER_H
+#ifndef MUSTDB_HASH_WRAPPER_H
+#define MUSTDB_HASH_WRAPPER_H
 
 #if defined(__has_include)
 #  if __has_include("libv/hash.h")
@@ -11,4 +11,4 @@
 #  include "../libv/src/include/hash.h"
 #endif
 
-#endif /* VECTORBASE_HASH_WRAPPER_H */
+#endif /* MUSTDB_HASH_WRAPPER_H */

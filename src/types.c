@@ -23,32 +23,32 @@ usize get_typeid_size(TypeID type)
     }
 }
 
-void VectorBase_init(VectorBase* vector, TypeID type)
+void MustDbVector_init(MustDbVector* vector, TypeID type)
 {
     vector->type  = type;
     vector->count = 0;
     vector->data  = NULL;
 }
 
-void VectorBase_from_vector(VectorBase* vector, Vector src, TypeID type)
+void MustDbVector_from_vector(MustDbVector* vector, Vector src, TypeID type)
 {
     vector->type = type;
     vector->count = src.size;
     vector->data = src.data;
 }
 
-void VectorBase_deinit(VectorBase* vector)
+void MustDbVector_deinit(MustDbVector* vector)
 {
     vector->count = 0;
     free(vector->data);
 }
 
-usize VectorBase_size(VectorBase* vector)
+usize MustDbVector_size(MustDbVector* vector)
 {
     return vector->count;
 }
 
-data_ptr_t VectorBase_get_data(VectorBase* vector)
+data_ptr_t MustDbVector_get_data(MustDbVector* vector)
 {
     return vector->data;
 }

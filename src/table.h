@@ -2,7 +2,7 @@
 #define DATATABLE_H
 
 #include "store.h"
-#include "vb_type.h"
+#include "mustdb_type.h"
 #include "segment.h"
 #include "vector.h"
 #include "types.h"
@@ -28,17 +28,17 @@ typedef enum
  *   count    = number of columns (ncols)
  *   arrays   = arrays[i] holds all values for column i (TypeID-typed)
  *
- * For the EMBED (embedding + payload) mode, see VbChunk in tmp/src/table_am.h.
+ * For the EMBED (embedding + payload) mode, see MustDbChunk in tmp/src/table_am.h.
  */
 struct DataChunk
 {
     ChunkMode mode;
     usize count;  /* number of columns (ncols or nrows)                         */
-    VectorBase* arrays; /* arrays[i] = typed array of all row values for col i */
+    MustDbVector* arrays; /* arrays[i] = typed array of all row values for col i */
     data_ptr_t data;   /* raw storage buffer (owned, optional)              */
     usize size;   /* bytes allocated in data                           */
     usize n_payloads; /*有多少payload 例如一个向量可能有多个payload 每个payload是一个RowVal
-                     有可能是JsonB, 也可能是int ，但是Vbchunk 里面 每向量有多少个 payload
+                     有可能是JsonB, 也可能是int ，但是MustDbchunk 里面 每向量有多少个 payload
                      是相同的*/
     const Datum** payloads; /* per-row payload (EMBED only), may be NULL        */
 };
@@ -51,7 +51,7 @@ void dataChunk_clear(DataChunk* chunk);
 
 void dataChunk_reset(DataChunk* chunk);
 
-void dataChunk_append(DataChunk* chunk, usize index, VectorBase src);
+void dataChunk_append(DataChunk* chunk, usize index, MustDbVector src);
 
 usize dataChunk_size(DataChunk* chunk);
 // StorageChunk 和 BlockSegment 的分段边界不一定对齐。一个 INT32 列的 BlockSegment（256KB）能装
@@ -107,7 +107,7 @@ typedef struct
 
 typedef struct
 {
-    VectorBase query;
+    MustDbVector query;
     DistanceType metric;
 } VectorCondition;
 
@@ -131,10 +131,10 @@ typedef struct
 
 // clang-format off
 DEFINE_CLASS(TableAmRoutine,
-    VMETHOD(TableAmRoutine, append, void, VectorBase* v, TupleVal* payloads, usize n_payloads)
+    VMETHOD(TableAmRoutine, append, void, MustDbVector* v, TupleVal* payloads, usize n_payloads)
     VMETHOD(TableAmRoutine, append_chunk, void, const DataChunk* chunk, TamInsertCtx* ctx)
     VMETHOD(TableAmRoutine, scan, int,  TamScanCtx* ctx, TableQueryResult* results, usize max_results)
-    VMETHOD(TableAmRoutine, update, int, VectorBase* v, TupleVal* payloads, TamUpdateCtx* ctx)
+    VMETHOD(TableAmRoutine, update, int, MustDbVector* v, TupleVal* payloads, TamUpdateCtx* ctx)
     VMETHOD(TableAmRoutine, delete, int, TamDeleteCtx* ctx)
     VMETHOD(TableAmRoutine,write_blocks, void, BlockManager* bm, MetaBlockWriter* w)
     VMETHOD(TableAmRoutine,load_blocks, void, BlockManager* bm, MetaBlockReader* r)
@@ -195,7 +195,7 @@ struct TableQueryResult
 {
     ItemPtr heap_ctid;
     ItemPtr emb_ctid;
-    VectorBase vector;
+    MustDbVector vector;
     Datum* payloads; /* optional, heap user cols (NULL if not requested) */
     f32 distance;
 };
@@ -216,8 +216,8 @@ void DataTable_init(DataTable* datatable);
 void DataTable_deinit(DataTable* datatable);
 
 void dataTable_insert_datachunk(DataTable* datatable, DataChunk* chunk);
-void dataTable_insert(DataTable* datatable, VectorBase* v, TupleVal* payloads, usize n_payloads);
-void dataTable_update(DataTable* datatable, ItemPtr old_heap_ctid, VectorBase* v,
+void dataTable_insert(DataTable* datatable, MustDbVector* v, TupleVal* payloads, usize n_payloads);
+void dataTable_update(DataTable* datatable, ItemPtr old_heap_ctid, MustDbVector* v,
                       TupleVal* payloads, usize n_payloads);
 void dataTable_delete(DataTable* datatable, ItemPtr old_heap_ctid);
 int dataTable_scan(DataTable* datatable, const VectorCondition* vec_cond, TableQueryResult* results,

@@ -9,4 +9,4 @@ typedef struct
     Catalog *catalog;
 } DB;
 
-#endif // VECTORBASE_H
+#endif // MUSTDB_H

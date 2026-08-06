@@ -1,6 +1,6 @@
 #ifndef VECTOR_INDEX_H
 #define VECTOR_INDEX_H
-#include "vb_type.h"
+#include "mustdb_type.h"
 #include "interface.h"
 #include "storage.h"
 #include "operator.h"
