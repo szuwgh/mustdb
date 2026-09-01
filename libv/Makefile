@@ -7,20 +7,15 @@ LIBV_INCLUDE := $(TOPDIR)/src/include
 CC := cc
 AR := ar
 CFLAGS := -std=c11 -Wall -Wextra -Werror -O2 -g -fPIC
-CPPFLAGS += -I$(LIBV_INCLUDE)
-PREFIX := /usr/local
-EXEC_PREFIX := /usr/local
-LIBDIR := /usr/local/lib
-INCLUDEDIR := /usr/local/include
-PKGCONFIGDIR := /usr/local/lib/pkgconfig
+override CPPFLAGS += -I$(LIBV_INCLUDE)
+PREFIX := /home/unvdb/cproject/mustdb/build
+EXEC_PREFIX := /home/unvdb/cproject/mustdb/build
+LIBDIR := /home/unvdb/cproject/mustdb/build/lib
+INCLUDEDIR := /home/unvdb/cproject/mustdb/build/include
+PKGCONFIGDIR := /home/unvdb/cproject/mustdb/build/lib/pkgconfig
 INSTALL ?= install
 
-CORE_SRCS := src/hash.c src/vector.c src/mustdb_type.c
-CORE_OBJS := $(patsubst src/%.c,$(BUILD_DIR)/obj/core/%.o,$(CORE_SRCS))
-SUBDIRS := src/net
-MODULE_OBJS := $(foreach dir,$(SUBDIRS),$(shell $(MAKE) --no-print-directory -s -C $(dir) print-objs TOPDIR=$(TOPDIR) BUILD_DIR=$(BUILD_DIR) LIBV_INCLUDE=$(LIBV_INCLUDE)))
-OBJS := $(CORE_OBJS) $(MODULE_OBJS)
-DEPFILES := $(CORE_OBJS:.o=.d)
+OBJS := $(shell $(MAKE) --no-print-directory -s -C src print-objs TOPDIR=$(TOPDIR) BUILD_DIR=$(BUILD_DIR) LIBV_INCLUDE=$(LIBV_INCLUDE))
 
 STATIC_LIB := libv.a
 SHARED_LIB := libv.so
@@ -29,25 +24,17 @@ TEST_SRCS := $(wildcard tests/test_*.c)
 TEST_EXES := $(TEST_SRCS:.c=)
 
 .NOTPARALLEL:
-.PHONY: all clean distclean install uninstall test subdirs $(SUBDIRS)
+.PHONY: all clean distclean install uninstall test src-build
 
-all: subdirs $(STATIC_LIB) $(SHARED_LIB)
+all: src-build $(STATIC_LIB) $(SHARED_LIB)
 
-subdirs: $(SUBDIRS)
+src-build:
+	$(MAKE) -C src all TOPDIR=$(TOPDIR) BUILD_DIR=$(BUILD_DIR) LIBV_INCLUDE=$(LIBV_INCLUDE)
 
-$(SUBDIRS):
-	$(MAKE) -C $@ all TOPDIR=$(TOPDIR) BUILD_DIR=$(BUILD_DIR) LIBV_INCLUDE=$(LIBV_INCLUDE)
-
-$(MODULE_OBJS): subdirs
-
-$(BUILD_DIR)/obj/core/%.o: src/%.c
-	@mkdir -p $(@D)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
-
-$(STATIC_LIB): $(OBJS)
+$(STATIC_LIB): src-build
 	$(AR) rcs $@ $(OBJS)
 
-$(SHARED_LIB): $(OBJS)
+$(SHARED_LIB): src-build
 	$(CC) -shared -o $@ $(OBJS)
 
 $(PC_FILE): libv.pc.in
@@ -68,9 +55,7 @@ test: $(TEST_EXES)
 	@echo "libv tests passed."
 
 clean:
-	@for dir in $(SUBDIRS); do \
-		$(MAKE) -C $$dir clean TOPDIR=$(TOPDIR) BUILD_DIR=$(BUILD_DIR) LIBV_INCLUDE=$(LIBV_INCLUDE); \
-	done
+	$(MAKE) -C src clean TOPDIR=$(TOPDIR) BUILD_DIR=$(BUILD_DIR) LIBV_INCLUDE=$(LIBV_INCLUDE)
 	rm -rf $(BUILD_DIR)
 	rm -f $(STATIC_LIB) $(SHARED_LIB) $(TEST_EXES)
 
@@ -91,5 +76,3 @@ uninstall:
 	-rm -f "$(DESTDIR)$(LIBDIR)/$(SHARED_LIB)"
 	-rm -f "$(DESTDIR)$(PKGCONFIGDIR)/libv.pc"
 	-rm -rf "$(DESTDIR)$(INCLUDEDIR)/libv"
-
--include $(DEPFILES)

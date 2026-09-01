@@ -1,6 +1,7 @@
-CC     ?= cc
-CFLAGS ?= -O2 -I ../src
-LDLIBS  = ../src/libmustdb.a -lm -lpthread
+CC       ?= cc
+CFLAGS   ?= -O2
+CPPFLAGS ?= -I ../src -I ../src/include -I ../build/include
+LDLIBS    = ../src/libmustdb.a -lm -lpthread
 
 TEST_SRCS = $(wildcard test_*.c)
 TEST_EXES = $(TEST_SRCS:.c=)
@@ -10,7 +11,7 @@ TEST_EXES = $(TEST_SRCS:.c=)
 all: $(TEST_EXES)
 
 test_%: test_%.c
-	$(CC) $(CFLAGS) -o $@ $< $(LDLIBS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $< $(LDLIBS)
 
 
 clean:

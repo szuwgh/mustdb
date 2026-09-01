@@ -2,26 +2,47 @@
 # Simple configure script
 set -eu
 
-# Default prefix
+# Default prefix and in-tree libv location as seen from the project root.
 PREFIX=/usr/local
+LIBV_DIR=${LIBV_DIR:-libv}
 
 for arg in "$@"; do
   case "$arg" in
     --prefix=*) PREFIX="${arg#--prefix=}" ;;
-    --help) echo "Usage: ./configure [--prefix=/path]"; exit 0 ;;
+    --libv-dir=*) LIBV_DIR="${arg#--libv-dir=}" ;;
+    --help)
+      echo "Usage: ./configure [--prefix=/path] [--libv-dir=/path/to/libv]"
+      echo "Environment: CC CFLAGS CPPFLAGS LDFLAGS LIBS LIBV_INCLUDEDIR LIBV_LIBDIR LIBV_LIBS"
+      exit 0
+      ;;
     *) : ;;
   esac
 done
 
 # Allow environment overrides
 CC=${CC:-cc}
+AR=${AR:-ar}
 CFLAGS=${CFLAGS:-"-O2 -fPIC"}
+CPPFLAGS=${CPPFLAGS:-""}
+LDFLAGS=${LDFLAGS:-""}
+LIBS=${LIBS:-""}
+LIBV_INCLUDEDIR=${LIBV_INCLUDEDIR:-"$LIBV_DIR/src/include"}
+LIBV_LIBDIR=${LIBV_LIBDIR:-"$LIBV_DIR"}
+LIBV_LIBS=${LIBV_LIBS:-"-lv"}
 LIBDIR=${LIBDIR:-"$PREFIX/lib"}
 INCLUDEDIR=${INCLUDEDIR:-"$PREFIX/include"}
 
 echo "Configuring with:" 
 echo "  CC=$CC"
+echo "  AR=$AR"
 echo "  CFLAGS=$CFLAGS"
+echo "  CPPFLAGS=$CPPFLAGS"
+echo "  LDFLAGS=$LDFLAGS"
+echo "  LIBS=$LIBS"
+echo "  LIBV_DIR=$LIBV_DIR"
+echo "  LIBV_INCLUDEDIR=$LIBV_INCLUDEDIR"
+echo "  LIBV_LIBDIR=$LIBV_LIBDIR"
+echo "  LIBV_LIBS=$LIBV_LIBS"
 echo "  PREFIX=$PREFIX"
 echo "  LIBDIR=$LIBDIR"
 
@@ -33,7 +54,15 @@ fi
 # Substitute variables into Makefile
 sed \
   -e "s|@CC@|$CC|g" \
+  -e "s|@AR@|$AR|g" \
   -e "s|@CFLAGS@|$CFLAGS|g" \
+  -e "s|@CPPFLAGS@|$CPPFLAGS|g" \
+  -e "s|@LDFLAGS@|$LDFLAGS|g" \
+  -e "s|@LIBS@|$LIBS|g" \
+  -e "s|@LIBV_DIR@|$LIBV_DIR|g" \
+  -e "s|@LIBV_INCLUDEDIR@|$LIBV_INCLUDEDIR|g" \
+  -e "s|@LIBV_LIBDIR@|$LIBV_LIBDIR|g" \
+  -e "s|@LIBV_LIBS@|$LIBV_LIBS|g" \
   -e "s|@PREFIX@|$PREFIX|g" \
   -e "s|@LIBDIR@|$LIBDIR|g" \
   -e "s|@INCLUDEDIR@|$INCLUDEDIR|g" \

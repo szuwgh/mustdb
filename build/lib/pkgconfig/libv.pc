@@ -1,0 +1,11 @@
+prefix=/home/unvdb/cproject/mustdb/build
+exec_prefix=/home/unvdb/cproject/mustdb/build
+libdir=/home/unvdb/cproject/mustdb/build/lib
+includedir=/home/unvdb/cproject/mustdb/build/include
+
+Name: libv
+Description: MustDB common C utility and network library
+Version: 0.1.0
+Cflags: -I${includedir} -I${includedir}/libv
+Libs: -L${libdir} -lv -pthread
+Libs.private: -pthread

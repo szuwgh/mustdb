@@ -130,8 +130,7 @@ void hmap_init_str(hmap* hm, usize value_size)
 
 void hmap_init_int(hmap* hm, usize value_size)
 {
-    hmap_init(hm, sizeof(int), value_size, HMAP_DEFAULT_NBUCKETS,
-              hmap_int_hash, hmap_int_cmp);
+    hmap_init(hm, sizeof(int), value_size, HMAP_DEFAULT_NBUCKETS, hmap_int_hash, hmap_int_cmp);
 }
 
 hmap* hmap_create(usize key_size, usize value_size, usize nbuckets,

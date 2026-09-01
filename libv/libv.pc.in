@@ -6,6 +6,6 @@ includedir=__INCLUDEDIR__
 Name: libv
 Description: MustDB common C utility and network library
 Version: __VERSION__
-Cflags: -I${includedir}
+Cflags: -I${includedir} -I${includedir}/libv
 Libs: -L${libdir} -lv -pthread
 Libs.private: -pthread

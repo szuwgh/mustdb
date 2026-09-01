@@ -1,0 +1,317 @@
+#include <stdlib.h>
+#include <string.h>
+#include "must.h"
+#include "vector.h"
+#include "catalog.h"
+#include "hash.h"
+#include "parser.h"
+#include "table.h"
+
+static void tablecatalogEntry_destroy(TableCatalogEntry* entry);
+static void schemacatalogEntry_destroy(SchemaCatalogEntry* entry);
+
+void catalogSet_init(CatalogSet* set)
+{
+    hmap_init_str(&set->data, sizeof(CatalogEntry*));
+}
+
+void catalogSet_deinit(CatalogSet* set)
+{
+    if (!set) return;
+    HMAP_FOREACH(&set->data, raw)
+    {
+        CatalogEntry* entry = *(CatalogEntry**)raw;
+        while (entry)
+        {
+            CatalogEntry* child = entry->child;
+            entry->child = NULL;
+            entry->parent = NULL;
+            if (entry->destroy)
+                entry->destroy(entry);
+            else
+            {
+                switch (entry->type)
+                {
+                    case SCHEMA:
+                        schemacatalogEntry_destroy((SchemaCatalogEntry*)entry);
+                        break;
+                    case TABLE:
+                        tablecatalogEntry_destroy((TableCatalogEntry*)entry);
+                        break;
+                    default:
+                        free(entry->name);
+                        free(entry);
+                        break;
+                }
+            }
+            entry = child;
+        }
+    }
+    hmap_deinit(&set->data);
+}
+
+static void catalogEntry_init(CatalogEntry* entry, CatalogType type, char* name)
+{
+    entry->type = type;
+    entry->name = name;
+    entry->deleted = false;
+    entry->parent = NULL;
+    entry->child = NULL;
+    entry->destroy = NULL;
+}
+
+static CatalogEntry* make_entry(CatalogType type, char* name)
+{
+    CatalogEntry* entry = malloc(sizeof(CatalogEntry));
+    if (!entry) return NULL;
+    catalogEntry_init(entry, type, name);
+    return entry;
+}
+
+static SchemaCatalogEntry* make_schema_entry(char* name)
+{
+    SchemaCatalogEntry* entry = malloc(sizeof(SchemaCatalogEntry));
+    if (!entry) return NULL;
+    catalogEntry_init(&entry->base, SCHEMA, name);
+    catalogSet_init(&entry->tables);
+    catalogSet_init(&entry->indexes);
+    return entry;
+}
+
+static TableCatalogEntry* make_table_entry(Catalog* catalog, SchemaCatalogEntry* schema, char* name,
+                                           CreateTableInfo* info)
+{
+    TableCatalogEntry* entry = malloc(sizeof(TableCatalogEntry));
+    if (!entry) return NULL;
+    catalogEntry_init(&entry->base, TABLE, name);
+    entry->schema = schema;
+    entry->column_count = info->col_count;
+    Vector types = VEC(TypeID, info->col_count);
+    for (int i = 0; i < info->col_count; i++)
+    {
+        TypeID t = get_internal_type(info->columns[i].type);
+        vector_push_back(&types, &t);
+    }
+    entry->datatable =
+        Datatable_create(catalog->storage, info->schema_name, name, info->col_count, types.data);
+    entry->storage_table = NULL;   /* new path not used on legacy create */
+    entry->columns = malloc(info->col_count * sizeof(ColumnDefinition));
+    if (!entry->columns)
+    {
+        free(entry);
+        return NULL;
+    }
+    memcpy(entry->columns, info->columns, info->col_count * sizeof(ColumnDefinition));
+    return entry;
+}
+
+static void tablecatalogEntry_destroy(TableCatalogEntry* entry)
+{
+    free(entry->base.name);
+    free(entry->columns);
+    free(entry);
+}
+
+static void schemacatalogEntry_destroy(SchemaCatalogEntry* entry)
+{
+    catalogSet_deinit(&entry->tables);
+    catalogSet_deinit(&entry->indexes);
+    free(entry->base.name);
+    free(entry);
+}
+
+/*
+  ┌─────────────────┬────────────────────────────────────────────────────────────────────┐
+  │ 版本链           │ 多个事务同时看到同一个对象的不同状态（MVCC 隔离）                       │
+  ├─────────────────┼────────────────────────────────────────────────────────────────────┤
+  │ dummy 节点      │ 给版本链一个"不存在"的终止状态，让先于 CREATE 的事务有正确的返回值       │
+  ├─────────────────┼────────────────────────────────────────────────────────────────────┤
+  │ parent 反向指针  │ 回滚时能从旧节点找到新节点并摘除，不需要遍历整条链                       │
+  └─────────────────┴────────────────────────────────────────────────────────────────────┘
+
+*/
+bool catalogSet_create_entry(CatalogSet* set, const char* name, CatalogEntry* value)
+{
+    /* hmap_get 返回 hmap_node* (即存储的 CatalogEntry*), 不存在则返回 NULL */
+    hmap_node* node = hmap_get(&set->data, name);
+    if (!node)
+    {
+        /* ---- 从未存在过 ---- */
+        /* 创建 dummy 节点: type=INVALID 表示"已删除/不存在" */
+        char* name_copy = strdup(name);
+        if (!name_copy) return false;
+        CatalogEntry* dummy = make_entry(INVALID, name_copy);
+        if (!dummy)
+        {
+            free(name_copy);
+            return false;
+        }
+        /* 插入 hmap，key 与 dummy->name 共用同一份 strdup 拷贝 */
+        node = hmap_insert(&set->data, dummy->name, &dummy);
+        if (!node)
+        {
+            free(dummy->name);
+            free(dummy);
+            return false;
+        }
+    }
+    else
+    {
+        CatalogEntry* current = HMAP_VALUE(node, CatalogEntry*);
+        if (!current->deleted)
+        {
+            /* 未被删除 = 已存在，创建失败 */
+            return false;
+        }
+    }
+    /* ---- 将 value 插入版本链头 ---- */
+    /*  value->child 指向旧链头 */
+    value->child = HMAP_VALUE(node, CatalogEntry*);
+    /* 建立反向链接 */
+    value->child->parent = value;
+    /* 更新 hmap，value 成为新链头 */
+    HMAP_VALUE(node, CatalogEntry*) = value;
+    return true;
+}
+
+CatalogEntry* catalogSet_get_entry(CatalogSet* set, const char* name)
+{
+    hmap_node* node = hmap_get(&set->data, name);
+    if (!node) return NULL;
+    CatalogEntry* entry = HMAP_VALUE(node, CatalogEntry*);
+    if (entry->deleted) return NULL;
+    return entry;
+}
+
+void catalogSet_scan(CatalogSet* set, CatalogScanFn scan_fn, void* ctx)
+{
+    HMAP_FOREACH(&set->data, entry)
+    {
+        scan_fn(*(CatalogEntry**)entry, ctx);
+    }
+}
+
+static void catalogSet_drop_entry_impl(CatalogSet* set, hmap_node* node)
+{
+    CatalogEntry* entry = HMAP_VALUE(node, CatalogEntry*);
+    CatalogEntry* value = make_entry(INVALID, strdup(entry->name));
+    if (!value) return;
+    // 插入 dummy 节点，覆盖旧链头
+    value->child = entry;
+    value->child->parent = value;
+    value->deleted = true;
+    // 更新 hmap，value 成为新链头
+    HMAP_VALUE(node, CatalogEntry*) = value;
+}
+
+bool catalogSet_drop_entry(CatalogSet* set, const char* name)
+{
+    hmap_node* node = hmap_get(&set->data, name);
+    if (!node) return false;
+    catalogSet_drop_entry_impl(set, node);
+    return true;
+}
+
+static void count_entry_callback(CatalogEntry* entry, void* ctx)
+{
+    if (!entry->deleted) ((u32*)ctx)[0]++;
+}
+
+u32 catalogSet_get_entry_count(CatalogSet* set)
+{
+    u32 count = 0;
+    catalogSet_scan(set, count_entry_callback, &count);
+    return count;
+}
+
+int catalog_create_schema(Catalog* catalog, CreateSchemaInfo* info)
+{
+    char* name_copy = strdup(info->schema_name);
+    if (!name_copy) return -1;
+    SchemaCatalogEntry* entry = make_schema_entry(name_copy);
+    if (!entry)
+    {
+        free(name_copy);
+        return -1;
+    }
+    if (!catalogSet_create_entry(&catalog->schemas, info->schema_name, (CatalogEntry*)entry))
+    {
+        schemacatalogEntry_destroy(entry);
+        if (!info->if_not_exists) return -2; // 已存在
+    }
+    return 0;
+}
+
+SchemaCatalogEntry* catalog_get_schema(Catalog* catalog, const char* schema_name)
+{
+    return (SchemaCatalogEntry*)catalogSet_get_entry(&catalog->schemas, schema_name);
+}
+
+int catalog_drop_schema(Catalog* catalog, const char* schema_name)
+{   // 不能删除默认 schema
+    if (!strcmp(schema_name, DEFAULT_SCHEMA)) return -1;
+    catalogSet_drop_entry(&catalog->schemas, schema_name);
+    return 0;
+}
+
+int catalog_create_table(Catalog* catalog, CreateTableInfo* info)
+{
+    SchemaCatalogEntry* schema_entry = catalog_get_schema(catalog, info->schema_name);
+    if (!schema_entry) return -1;
+    char* name_copy = strdup(info->table_name);
+    if (!name_copy) return -1;
+    TableCatalogEntry* entry = make_table_entry(catalog, schema_entry, name_copy, info);
+    if (!entry)
+    {
+        free(name_copy);
+        return -1;
+    }
+    if (!catalogSet_create_entry(&schema_entry->tables, info->table_name, (CatalogEntry*)entry))
+    {
+        tablecatalogEntry_destroy(entry);
+        if (!info->if_not_exists) return -2; // 已存在
+    }
+    return 0;
+}
+
+TableCatalogEntry* catalog_get_table(Catalog* catalog, const char* schema_name,
+                                     const char* table_name)
+{
+    SchemaCatalogEntry* schema = catalog_get_schema(catalog, schema_name);
+    if (!schema) return NULL;
+    return (TableCatalogEntry*)catalogSet_get_entry(&schema->tables, table_name);
+}
+
+Vector tableCatalogEntry_get_types(TableCatalogEntry* entry)
+{
+    Vector result = VEC(SQLType, entry->column_count);
+    for (usize i = 0; i < entry->column_count; i++)
+    {
+        vector_push_back(&result, &entry->columns[i].type);
+    }
+    return result;
+}
+
+Catalog* catalog_create()
+{
+    Catalog* catalog = malloc(sizeof(Catalog));
+    if (!catalog) return NULL;
+    catalogSet_init(&catalog->schemas);
+    catalog->storage = NULL;
+    return catalog;
+}
+
+void catalog_destroy(Catalog* catalog)
+{
+    if (!catalog) return;
+    catalogSet_deinit(&catalog->schemas);
+    free(catalog);
+}
+
+StorageTable* catalog_get_storage_table(Catalog* catalog, const char* schema_name,
+                                        const char* table_name)
+{
+    TableCatalogEntry* entry = catalog_get_table(catalog, schema_name, table_name);
+    if (!entry) return NULL;
+    return entry->storage_table;
+}
