@@ -1,7 +1,7 @@
 #ifndef TYPES_H
 #define TYPES_H
 #include "mtype.h"
-#include "vector.h"
+#include "slice.h"
 
 // internal types
 typedef enum TypeID
@@ -27,7 +27,7 @@ typedef struct MustDbVector
 
 void MustDbVector_init(MustDbVector* vector, TypeID type);
 
-void MustDbVector_from_vector(MustDbVector* vector, Vector src, TypeID type);
+void MustDbVector_from_slice(MustDbVector* vector, Slice src, TypeID type);
 
 void MustDbVector_deinit(MustDbVector* vector);
 

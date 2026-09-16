@@ -3,6 +3,11 @@
 ## 设计哲学
 1. 一切接插件
 2. 小内核 大扩展
+3. **嵌入式轻量 PG 风格实现**：MustDB 对齐 PostgreSQL 中确实需要的
+   存储、表访问、缓冲、WAL、事务、MVCC 和 checkpoint 的接口语义、命名和代码组织，
+   但目标不是 PostgreSQL 的 1:1 完整复制。不得为了形式对齐引入 backend、SQL 执行器、
+   进程级全局状态、分布式组件或其他嵌入式场景不需要的复杂机制；每个与 PG 的差异都应
+   保持边界清晰，并以嵌入式生命周期、资源占用和可测试性为取舍依据。
 
 ## 第一黄金目标：可复用检索库优先
 1. MustDB 的向量能力首先要沉淀为**可复用向量算法库**：`tmp/src/vector_algo` 是第一目标，
@@ -80,38 +85,6 @@ Rust Memory API
    rebuild；Reed-Solomon EC 仅在 shard 分布于独立物理盘时启用。单盘 EC 没有恢复价值，
    单机多盘 EC 仍不能替代离机备份。
 
-### libostore 当前实现状态（2026-08-31）
-
-`tmp/libobject` 现在提供独立的 `libostore.a`（无 MustDB 未定义符号）和可选的
-`libostore_mustdb_meta.a` callback adapter。已完成并由 standalone tests 覆盖：
-
-| 能力 | 当前状态 |
-|------|----------|
-| FileMetaBackend / 可插拔 `OStoreMetaBackend` | ✅ File default + 独立 MustDB callback adapter；`test_ostore_catalog` / `test_ostore_mustdb_adapter` |
-| BLAKE3 object/chunk integrity 与 `object.meta` checksum | ✅ official portable BLAKE3，`test_ostore_integrity` |
-| streaming PUT/GET、chunk seek、atomic staged publish | ✅ `test_ostore_basic` |
-| generation CAS、delete、prefix list/cursor | ✅ `test_ostore_catalog` |
-| multipart persisted part 与 resume | ✅ `test_ostore_multipart` |
-| process writer lock、reader/GC coordination、recovery/scrub/GC | ✅ `test_ostore_process_lock` / `test_ostore_maintenance` |
-| snapshot manifest + GC pin + external transaction participant | ✅ `test_ostore_maintenance` |
-| standalone inspect/verify tools 与 streaming benchmark | ✅ `make -C tmp/libobject tools` / `bench` |
-| persistent device format + weighted placement | ✅ `DEVICE-FORMAT`、128-bit `OStoreDeviceId`、HRW selection；`test_ostore_device_api` / `test_ostore_placement_codec` |
-| reusable Reed-Solomon stripe primitive | ✅ `src/ostore_erasure.c` + optional `libostore_isal.a`；portable mode explicitly returns `OSTORE_EUNSUPPORTED`，`test_ostore_erasure` |
-| single-node multi-disk EC | ✅ ISA-L `2+1`/`3+2` roles are placed on distinct local roots; `test_ostore_ec_multidisk_3_2` covers silent data-shard corruption fallback, two-disk loss, exact reconstruction and repair |
-| EC profile safety boundary | ✅ portable open rejects EC; duplicate target root is rejected; `test_ostore_ec_profile` |
-| RequestContext（取消/deadline/I/O/object budget） | ✅ context-aware PUT/GET/snapshot/maintenance APIs；`test_ostore_request_context` / `test_ostore_snapshot_context` |
-| TargetCaps + strict publish preflight | ✅ read/write/atomic publish/dir fsync/pack capability gate；`test_ostore_target_ops` |
-| PlacementOps | ✅ configurable persistent-ID selector, default weighted HRW；`test_ostore_placement_ops` |
-| bounded transform pipeline | ✅ codec then cipher / reverse decode / allocation budget；`src/ostore_transform_ops.c`、`test_ostore_transform_pipeline` |
-| telemetry + working-set budget | ✅ post-I/O callback plus transform/EC reservation；`test_ostore_telemetry_budget` / `test_ostore_ec_multidisk_3_2` |
-| maintenance task registry | ✅ priority/failure isolation/cancel-budget dispatch；`src/maintenance/ostore_maintenance.c`、`test_ostore_maintenance_tasks` |
-| object/meta/snapshot/maintenance facade split | ✅ lifecycle modules under one static-preserving C translation unit；`test_ostore_facade_split` / `check-facade-split` |
-
-尚未完成：target-aware snapshot/export 的完整跨引擎 restore protocol、KMS server、S3
-server、remote target RPC、分布式元数据 quorum、distributed lock 与 degraded-write quorum。
-MustDB 真实 `TransactionManager` 绑定和跨引擎 restore/export 必须由 Memory API adapter
-在其事务边界内实现，不能让 libostore core 绕过该边界。
-
 ## 规则
 1. 每次回复我前请叫我师父
 2. 这个项目要和/home/unvdb/cproject/vecobs协作
@@ -181,7 +154,7 @@ make -C tmp clean
 ### 分层总览
 
 ```
-Collection / DocumentAccess / GraphAccess / MustDbAccess   ← 上层访问 API 与插件
+Collection / MustDbAccess                                  ← 公开 facade 与插件管理器
     ↓
 MustDbRelation + MustDbIndexAm (BTree / Vector)            ← relation 与二级索引编排
     ↓
@@ -189,12 +162,21 @@ StorageTable / TableAm (TamHeapTable + TamColTable)        ← 表 AM vtable
     ↓
 RowStore(heap)   EmbeddingStore(f32)   ColumnStore    ViIndex LSM(ANN)
     ↓
-MustDbPager / BufferPool / page WAL / BlockManager         ← 页面缓存、刷脏与页镜像
+MustDbPager / BufferPool / page WAL                        ← 页面缓存、刷脏与页镜像
     ↓
 MustDbStorageManager(fork 分配) / MustDbStorageDevice      ← 单文件存储设备
     ↓
 TransactionManager (CLOG + WAL + Snapshot)                 ← 横切 MVCC / 恢复
 ```
+
+`MustDbDatabase` 是唯一通用 runtime owner，拥有 SMGR、数据库级 BufferPool、
+TransactionManager/WAL、Catalog、checkpoint participant 和 redo registry。
+`MustDbRelation` 是打开的表句柄；`Collection` 是唯一公开的 document/vector/fulltext
+便利 facade。`DocumentAccess`/`GraphAccess` 仅为内部插件实现，不打开数据库、不创建物理表。
+
+数据库路径始终是精确 `.mustdb` 文件，WAL 始终由该路径派生。创建与打开严格分离：
+`mustdb_database_create()` 只创建，`mustdb_database_open()` 只打开；不得根据路径存在性
+在数据库层自动切换，也不得保留目录存储、调用方 WAL 路径或向量目录第二主路径。
 
 ### 单文件存储原则（嵌入式默认路线）
 
@@ -202,11 +184,11 @@ MustDB 的嵌入式存储目标是类似 SQLite / DuckDB 的**单文件数据库
 一个 `.mustdb` 文件拷贝到其他机器或目录后，应该可以独立打开和使用。
 
 - **主数据文件**：payload/RowStore、B-Tree、VectorIndex LSM segment、全文索引 segment、manifest/free map 等长期状态都应进入同一个 `.mustdb` 文件。
-- **WAL 文件**：采用 sidecar WAL（例如 `.mustdb.wal`），用于事务提交与崩溃恢复；checkpoint 成功后可以删除/截断。不要把长期 WAL 当成主数据长期组成部分。
+- **WAL 文件**：采用 sidecar WAL（例如 `.mustdb.wal`），用于事务提交与崩溃恢复；checkpoint 成功后按逻辑 `base_lsn` 回收前缀，不能重置或复用 page LSN。不要把长期 WAL 当成主数据长期组成部分。
 - **分配单位**：单文件内部统一按 8KB page 分配；大对象、vector segment、FTS segment 使用连续或多段 page range / extent 存储。
 - **Segment 首页头**：多 page segment 的第一页必须写 `MustDbSegmentHeader`，记录 `kind/segment_id/payload_offset/payload_size/page_count`。manifest/free map 仍是权威，header 只做自描述、校验和恢复辅助。
-- **BlockManager 边界**：嵌入式路径优先使用 `MustDbStorageManager`（内部走 `sfdb`/单文件 BlockManager + `MustDbStorageDevice` vtable）；上层模块不直接假设普通目录文件，也不直接管理裸文件 offset。
-- **fork 分配**：`MustDbStorageManager` 按 fork 组织存储，当前 fork 有 `META` / `HEAP` / `FSM` / `EMBEDDING` / `VECTOR_SEGMENT` / `VECTOR_MANIFEST` / `FULLTEXT_SEGMENT` / `GRAPH_SEGMENT` / `FULLTEXT_MANIFEST`。extent 以 `MustDbStoragePageRange{fork_id,start_page,page_count}` 为单位分配/回收，支持 `pread/pwrite/mmap_extent/msync_extent`。
+- **SMGR 边界**：嵌入式主路径只使用 `MustDbStorageManager` + `MustDbStorageDevice` vtable；上层模块不依赖 BlockManager，不直接假设目录文件，也不管理裸文件 offset。
+- **fork 分配**：`MustDbStorageManager` 按 fork 组织存储，当前 fork 有 `META` / `HEAP` / `FSM` / `VM` / `OVERFLOW` / `EMBEDDING` / `VECTOR_SEGMENT` / `VECTOR_MANIFEST` / `FULLTEXT_SEGMENT` / `GRAPH_SEGMENT` / `FULLTEXT_MANIFEST`。relation 使用 fork-local block；SMGR 独占 `(storage_id,fork,local_block) -> global extent` 映射。大 segment extent 以 `MustDbStoragePageRange` 分配/回收。
 - **存储设备**：`MustDbStorageDevice` vtable（read_at/write_at/mmap_range/sync/truncate/caps）把本地文件系统能力抽象成可替换后端；`MustDbPageIO` 是 fork 级的窄 read/write page adapter。
 - **VectorIndex compact**：compact 时写新 segment page range → 发布新 manifest → 旧 segment page range 进入 free extent map。不得让旧 segment 永久悬挂导致文件无限增长。
 - **free extent map**：长期写入和 compact 产生的空闲 page 必须回收到 free map；文件尾部连续空闲 page 可以 tail truncate。
@@ -240,9 +222,9 @@ StorageTable
 EmbeddingStore     — f32 向量 bytes（独立 store，不属于 StorageTable 引擎数组）
 ```
 
-`TamHeapTable` 的每个 heap slot 格式为 `[TupleHdr (40B)][col_0][col_1]...`，
-其中 `TupleHdr.t_emb_ctid` 保留为 legacy 磁盘向量指针槽（checkpoint 兼容）；
-新向量 bytes 归 `EmbeddingStore`。
+`TamHeapTable` 的每个 heap slot 格式为 `[TupleHdr (34B)][col_0][col_1]...`。
+Tuple header 只保存 heap/MVCC 状态；稳定 `vector_id` 是普通内部列 `_vector_id`，
+物理 embedding ref 只存在于 `EmbeddingStore` RefTable、ViIndex 和统一 vector WAL intent。
 
 每个引擎实现 `TamRoutine` vtable（**数据库表的统一抽象**）：
 
@@ -250,8 +232,6 @@ EmbeddingStore     — f32 向量 bytes（独立 store，不属于 StorageTable 
 typedef struct {
     void (*append)(TableAm* am, const void* data);
     int  (*get)(TableAm* am, u64 seq_idx, void* out);
-    int  (*write_blocks)(TableAm* am, BlockManager* bm, MetaBlockWriter* w);
-    int  (*load_blocks)(TableAm* am, BlockManager* bm, MetaBlockReader* r);
     u64  (*count)(TableAm* am);
     void (*destroy)(TableAm* am);
     void (*append_chunk)(TableAm* am, const MustDbChunk* chunk, TamInsertCtx* ctx);
@@ -314,14 +294,11 @@ vtable 调度各引擎，再由 bridge 步骤将 MustDbChunk 压平为
 
 ```c
 typedef struct {
+    Transaction*  txn;            /* 必须是活动事务 */
+    u32           cid;
     ItemPtr*       out_heap_ctids; /* [count] — heap 引擎插入后填充 */
-    ItemPtr*       emb_ctids;      /* legacy 向量指针槽；通常为 NULL */
     const ItemPtr* heap_ctids;     /* 调用方提供（NULL = 自动分配） */
     usize      count;
-    TxnId      xid;            /* != 0 时作为 t_xmin；0 = 非事务路径 */
-    u32        cid;            /* PG CommandId；写入 TupleHdr.t_cid */
-    WAL*       wal;
-    u64        page_rel_id;
 } TamInsertCtx;
 // 引擎按 insert_phase 调度；当前 HEAP 填充 out_heap_ctids[]，POST_HEAP 可读取。
 ```
@@ -338,8 +315,8 @@ typedef struct {
   可见性规则优先看 `xmin/xmax/active_xids`，再回落 CLOG。
 - `TransactionManager` 持有 `next_xid`、active XID 表、CLOG、WAL、checkpoint lock。
 - `Transaction` 是显式事务句柄，携带 xid、snapshot、子事务状态栈、savepoint、
-  ResourceOwner；PG 风格的 `StartTransactionCommand()` / `CommitTransactionCommand()` /
-  `AbortCurrentTransaction()` 是薄封装。
+  ResourceOwner；底层 DML 必须接收活动 `Transaction*`。应用使用
+  `mustdb_transaction_begin/commit/rollback`，不提供伪 backend-global 的 PG 命名薄封装。
 - `TupleHdr` 不再携带 `infomask/infomask2/hoff`，可见性完全由 xmin/xmax + CLOG 判定。
 
 #### INSERT / UPDATE / DELETE
@@ -350,19 +327,18 @@ heap 的公开 DML 走 PG heapam 风格 API（`heap_insert/heap_update/heap_dele
 - **INSERT**：`t_xmin=xid, t_xmax=INVALID_TXN_ID(0), t_ctid=self`。
 - **UPDATE**（MVCC append-only）：新版本 append，旧版本原地写 `t_xmax=xid`，
   `t_ctid` 指向新版本（forward pointer）；最新版本 `t_ctid` 自指。
-- **DELETE**：`heap_delete(store, tid, xid, cid)` 只写 `t_xmax=xid`，`t_ctid` 保持自指。
+- **DELETE**：`heap_delete(store, tid, txn, cid)` 只写 `t_xmax=txn->xid`，`t_ctid` 保持自指。
 - **可见性**：`heap_fetch` / `heap_scan_iter_next` 通过 snapshot + CLOG 判定；
   自己事务的未提交 insert（`xmin==own_xid && xmax==0`）始终可见。
-- **写冲突**：`heap_update_with_clog_wal` 返回 `RsWriteResult`，
-  `storage_table_delete_txn` 返回 `TxnWriteResult`（两者取值一致：
-  `OK/DELETED/BEING_MODIFIED/NOT_FOUND/SELF_MODIFIED/UPDATED/INVISIBLE`）。
-- **ANN 节点**：`NodeMvcc{xmax}` 轻量缓存，`NODE_IS_ALIVE(nm)` ↔ `xmax == INVALID_TXN_ID`；
-  权威版本信息仍在 RowStore heap。
+- **写冲突**：`heap_update_with_options` 与 `storage_table_delete_row` 返回
+  `RsWriteResult`：`OK/DELETED/BEING_MODIFIED/NOT_FOUND/SELF_MODIFIED/UPDATED/INVISIBLE`。
+- **ANN 可见性**：heap header + snapshot/CLOG 是唯一权威，索引命中必须回表或走绑定的
+  visibility callback；不维护第二套 ANN MVCC 状态。
 
 #### PG heapam 后续优化清单（先保存，后续按需做）
 
-当前 `heap_insert` / `heap_update` / `heap_delete` / `heap_delete_with_clog` /
-`simple_heap_*` / `heap_fetch` 已对齐 PG heapam 的核心语义骨架，但不是逐行复刻完整
+当前 `heap_insert` / `heap_update` / `heap_delete` / `heap_fetch` 已对齐 PG heapam
+的核心语义骨架，但不是逐行复刻完整
 PostgreSQL。下面能力先作为后续优化，不要混入当前 heap 主入口对齐任务。
 
 | PG 能力 | 作用 | 嵌入式需要 | MustDB 建议优先级 |
@@ -387,11 +363,11 @@ cache**、**freeze + CLOG truncate** 已完成；等二级索引生命周期稳�
 - `vacuum_row_store(store, safe_xid)` 把满足 `t_xmax != 0 && t_xmax <= safe_xid` 的
   dead slot 标为 LP_UNUSED；CLOG 版本 `vacuum_row_store_with_clog` 会先确认删除事务
   已提交，避免回收 aborted DELETE 的 tuple。
-- `vacuum_row_store_with_clog_wal_cleanup` 在标 LP_UNUSED 前先通过
-  `RowVacuumCleanupFn` 发布 emb/vector 回收身份（先回收 EmbeddingStore/ANN 二级资源，
+- vacuum cleanup 在标 LP_UNUSED 前先通过 `RowVacuumCleanupFn` 发布 vector_id 回收身份
+  （先回收 EmbeddingStore/ANN 二级资源，
   再清 heap）。
-- `row_store_collect_dead_embs_for_seg_with_clog` 是 embedding GC 的前置 pass，
-  扫描 dead heap tuple 收集 `t_emb_ctid`。
+- dead tuple 的内部 `_vector_id` 属性是二级资源清理键；heap tuple header 不保存
+  embedding 物理地址。
 - `EmbeddingStore` 生命周期由 heap xmax 决定；`free_list` 在水位线内复用单个向量槽，
   mmap 后端还通过 `EmbeddingPageRef.live` + retired extent 做整页/extent 回收。
 - `VACUUM FULL` 走 `collection_vacuum_full`：扫描 live tuple → 重写新 `.mustdb` →
@@ -427,13 +403,13 @@ Line pointer 状态用 `lp_flags` 的 2 bit 表达：`LP_UNUSED / LP_NORMAL / LP
 LP_UNUSED 槽保留在 slot 数组里不从数组中移除。`RowPageRepairFragmentation` 对齐 PG
 `PageRepairFragmentation`，`RowPageVacuumDead` 把 LP_DEAD 转 LP_UNUSED。
 
-**逻辑页映射**：`RowRelation` 保存 `RowPageDesc[]`，把稳定的 relation-local
-`block_id`（CTID 页号）映射到当前 `storage_block_id`；checkpoint 可换物理页但不改 CTID。
-每个 `RowPageDesc` 还缓存 `start_seq / high_water / lp_count / reusable_count`。
+**relation-local 页号**：CTID 的 `block_id` 直接等于 MAIN fork-local block number。
+`RowRelation.pages` 只缓存可从 MAIN page 重建的 `start_seq / high_water / lp_count /
+reusable_count`，不保存 global page id 或第二套物理页目录。单文件 extent 搬迁不改变 local block。
 
 **物理 ctid 编码**（对齐 PG `ItemPointerData`，6B）：
 ```
-ip_blkid_hi(u16) | ip_blkid_lo(u16) = block_id（BlockManager/storage 分配的真实物理块号）
+ip_blkid_hi(u16) | ip_blkid_lo(u16) = block_id（relation MAIN fork-local block）
 ip_posid(u16)                        = 1-based slot 号（PG OffsetNumber）
 packed u64 = (block_id << 16) | ip_posid
 seq_idx = heap_ctid_to_seqidx(store, ctid)   // 按 RowPageDesc.start_seq 映射
@@ -441,26 +417,25 @@ seq_idx = heap_ctid_to_seqidx(store, ctid)   // 按 RowPageDesc.start_seq 映射
 
 **on-disk tuple 格式**（每个 slot 内，无独立 row_id 字段）：
 ```
-[TupleHdr (40B)][serialized col_0][col_1]...
+[TupleHdr (34B)][serialized col_0][col_1]...
 ```
 
-**TupleHdr（40B）**：
+**TupleHdr（34B，packed）**：
 
 | offset | size | 字段 | 含义 |
 |--------|------|------|------|
 | 0 | 8 | `t_xmin` | 插入事务 XID（64 位） |
 | 8 | 8 | `t_xmax` | 删除/更新事务 XID（0 = 存活） |
-| 16 | 6 | `t_emb_ctid` | MustDB 扩展：legacy 向量指针槽（`INVALID_ITEM_PTR` 表示无） |
-| 22 | 6 | `t_ctid` | self/forward CTID，对齐 PG `HeapTupleHeaderData.t_ctid` |
-| 28 | 4 | `t_cid` | Command ID |
-| 32 | 8 | `null_bits` | bit i=1 → 列 i 为 NULL（最多 64 列） |
+| 16 | 8 | `null_bits` | bit i=1 → 列 i 为 NULL（最多 64 列） |
+| 24 | 4 | `t_cid` | Command ID |
+| 28 | 6 | `t_ctid` | self/forward CTID，对齐 PG `HeapTupleHeaderData.t_ctid` |
 
 与 PG 的差异：`t_xmin/t_xmax` 为 64 位；`null_bits` 固定 u64（PG 用可变 `t_bits[]`）；
-没有 `infomask/infomask2/hoff`，可见性由 CLOG 判定；`t_emb_ctid` 是 MustDB 扩展字段。
+没有 `infomask/infomask2/hoff`，可见性由 snapshot + CLOG 判定；向量身份不进入 header。
 
 #### RowStore 插入与空间复用
 
-- `heap_insert(store, xid, cid, emb_ctid, values, null_bits)` 是主插入入口，
+- `heap_insert(store, txn, cid, values, null_bits)` 是主插入入口，
   内部按 PG `RelationGetBufferForTuple` 思路：FSM/hint 找有空间的逻辑页 →
   BufferPool pin → `RowPageAddItem` 写入 slot。
 - `RowFreeSpaceMap`（简化 FSM，`Vector<RowFsmEntry>`）维护 page free-space hint，
@@ -575,7 +550,7 @@ io_uring 实现；SBQ 不等同于 RabitQ。当前 RabitQ 是 P3 portable baseli
 | IO | pthread pread backend | 批量读可用线程并发化 | 建议 | ✅ 已完成基础：`VI_IO_BACKEND_PTHREAD_PREAD` |
 | 缓存 | segment cache LRU/adaptive | 热 segment/page 缓存，降低重复 IO | 需要 | ✅ 已完成：`ViSegmentCache` |
 | 缓存 | cache populate/clear 接口 | 支持显式预热和清理缓存 | 建议 | ✅ 已完成接口：`vi_index_populate_cache` / `vi_index_clear_cache` |
-| 持久化 | segment magic/version | segment 格式自描述，支持基础兼容判断 | 需要 | ✅ 已完成：`VI_SEGMENT_MAGIC_V103/V104/V105` |
+| 持久化 | segment magic/version | segment 格式自描述并严格拒绝非当前格式 | 需要 | ✅ 已完成：当前只接受 `VISEG105`，见 `test_current_format_fence` |
 | 持久化 | StorageManager fork/extent 存储 | vector segment/manifest 进入单文件 fork | 需要 | ✅ 已完成基础：`VECTOR_SEGMENT` / `VECTOR_MANIFEST` fork |
 | 统计 | reader/cache memory stats | 观察 resident/mapped/cached/pin/pread 等读路径状态 | 需要 | ✅ 已完成基础：`ViIndexReaderStats` / `ViSegmentReaderStats` |
 | 架构 | `vector_algo` 可复用边界 | 算法层不反向依赖 `vector_index`/StorageManager/CTID | 需要 | ✅ 已完成：`va_filter.*`、`va_segment_view.h`、`vi_algo_adapter.*`，见 `test_va_algo_boundary` / `test_va_diskann_algo_boundary` |
@@ -600,7 +575,7 @@ io_uring 实现；SBQ 不等同于 RabitQ。当前 RabitQ 是 P3 portable baseli
 | 多向量 | named vectors / multivector | 多字段 embedding registry 与 ColBERT 类 MaxSim scorer | 可选 | ✅ 已完成 P3 基础：`vi_named_vector.*`、`va_multivector.*`，见 `test_vi_named_vectors` / `test_va_multivector` |
 | IO | direct IO alignment policy | 为未来 O_DIRECT/libaio/io_uring 批量读提供 sector 对齐规划 | 建议 | ✅ 已完成 P4 policy 层：`vi_direct_io.*`，见 `test_vi_direct_io_policy`；默认仍是 buffered IO |
 | 搜索执行 | batch multi-query search | 多 query 共用 prefetch/cache 后逐 query 保持单查语义 | 建议 | ✅ 已完成 P4：`vi_batch_search.*`，见 `test_vi_batch_search` |
-| 持久化 | format migration / compatibility | segment magic 兼容判断与旧头内存规整 | 需要 | ✅ 已完成 P4 基础：`vi_format_migration.*`，见 `test_vi_format_migration` |
+| 持久化 | current-format fence | DB/WAL/vector/fulltext 只读取当前格式，避免多代在线分支 | 需要 | ✅ 已完成：DB v7、WAL v2、`VISFDB05`、`VISEG105`、`VIDSAN13`、IVF manifest v3、FTA v2；见 `test_current_format_fence` |
 | 持久化 | snapshot archive validation | 检查 segment/state/seq 高水位一致性 | 需要 | ✅ 已完成 P4 基础：`vi_snapshot_validate.*`，见 `test_vi_snapshot_validate` |
 | 并发 | reader snapshot pin | 搜索期间用 generation/refcount 推迟 obsolete reclaim | 需要 | ✅ 已完成 P4 基础：`vi_reader_snapshot.*` + compaction generation bump，见 `test_vi_reader_snapshot` |
 | 可观测性 | build/compact telemetry | segment build、IVF assignment、compact/rebuild 边界计数 | 建议 | ✅ 已完成 P4：`ViBuildTelemetry` / `ViCompactTelemetry`，见 `test_vi_build_compact_telemetry` |
@@ -636,7 +611,7 @@ io_uring 实现；SBQ 不等同于 RabitQ。当前 RabitQ 是 P3 portable baseli
 | 持久化 | manifest 原子发布 | flush/compact 崩溃时保持新旧 manifest 一致 | 需要 | ✅ 已完成 P0：`vi_manifest_save()` tmp+fsync+rename，`vi_index_recover_directory()` 清理 interrupted tmp，见 `test_vi_validation` |
 | 持久化 | orphan segment cleanup | 崩溃后清理未发布或废弃 segment extent | 需要 | ✅ 已完成 P0：`vi_index_reclaim_orphans()` 验收未引用 segment 删除，见 `test_vi_validation` |
 | 持久化 | vector segment checksum | 检测单文件拷贝损坏、mmap 读坏页 | 需要 | ✅ 已完成 P0：`vi_validation.*` CRC32 footer API，见 `test_vi_validation` |
-| 持久化 | format migration / compatibility | segment 格式升级后兼容旧文件 | 需要 | ✅ 已完成 P4 基础：`vi_format_migration.*` 支持 V103/V104/V105 compatibility 与 quantizer descriptor 规整 |
+| 持久化 | format migration / compatibility | segment 升级策略 | 需要 | ✅ 当前策略：实验树不在线兼容旧文件，非当前格式明确拒绝；迁移器已删除 |
 | 持久化 | snapshot archive validation | 备份/迁移时验证 heap/embedding/vector 一致 | 需要 | ✅ 已完成 P4 基础：`vi_snapshot_validate.*` 检查 segment/state/seq 高水位一致性；跨 heap/embedding 归档校验后续接 Collection |
 | IO | 真实 io_uring / libaio | DiskANN 随机读并发化，降低 tail latency | 建议 | ⚠️ P1 边界完成：`MUSTDB_ENABLE_IO_URING` + requested/active/fallback stats；portable build fallback 到 sync，真实 liburing fd pipeline 后续结合 direct IO/reader fd API 实现 |
 | IO | direct IO alignment policy | 避免 page cache 干扰，匹配 DiskANN sector/page 读 | 建议 | ✅ 已完成 P4 policy 层：`vi_direct_io_plan_read()` 计算 aligned range/copy window；不默认启用 O_DIRECT |
@@ -657,6 +632,7 @@ segment/manifest/lifecycle 封装层。完成全文检索任务后必须同步�
 | 阶段 | 能力 | 层级 | 当前状态 |
 |------|------|------|----------|
 | P0 | tokenizer/analyzer、varint/buffer、posting/doclist、vocab、immutable segment | `fulltext_algo` | ✅ 已完成：`fta_tokenizer.*` / `fta_analyzer.*` / `fta_doclist.*` / `fta_segment.*`，见 `test_fta_varint` / `test_fta_tokenizer` / `test_fta_doclist` / `test_fta_vocab` / `test_fta_segment` |
+| P0/P1 | 严格 UTF-8 + CJK overlapping bigram、自然语言 OR/BM25 query、analyzer 版本化 | `fulltext_algo` → `fulltext_index` → Collection/Corvus | ✅ 已完成：CJK 连续文本生成 bigram、孤字 unigram，覆盖全角文本、半角片假名、Hangul Jamo 与扩展汉字，拒绝非法 UTF-8；`fta_query_parse_natural()` 使用有预算的平衡 OR tree，显式布尔语义不变；segment V2 持久化 analyzer 配置指纹并拒绝不兼容查询/merge，Corvus 默认 natural 模式。见 `test_fta_tokenizer` / `test_fta_query` / `test_fta_segment` / `test_fti_runtime` / `test_collection_fulltext_search` / `typed_repository_uses_natural_cjk_fulltext_query` |
 | P1 | query AST、phrase/NEAR/prefix eval、BM25、stable top-k、segment merge | `fulltext_algo` | ✅ 已完成：`fta_query.*` / `fta_eval.*` / `fta_bm25.*` / `fta_topk.*` / `fta_merge.*`，见 `test_fta_query` / `test_fta_eval_bm25` / `test_fta_merge` |
 | P2 | manifest ACTIVE/OBSOLETE、segment metadata、doc_id→heap CTID map、tombstone、flush/reopen | `fulltext_index` | ✅ 已完成：`fti_manifest.*` / `fti_segment.*` / `fti_runtime.*` / `fti_tombstone.*`，见 `test_fti_manifest` / `test_fti_runtime` |
 | P2 | StorageManager FULLTEXT fork segment write/read ex API，保留旧 storage helper API | `fulltext_index` | ✅ 已完成：`fti_storage_store.*`，见 `test_fti_runtime` / `test_fts_single_file_store` / `test_fts_storage_manager_store` / `test_sfdb_segment_header` |
@@ -676,8 +652,9 @@ segment/manifest/lifecycle 封装层。完成全文检索任务后必须同步�
 
 | 能力 | Collection 状态 |
 |------|-----------------|
-| `vector_index` 基础/高级配置 | ✅ 已开放：`CollectionVectorOptions` + legacy `ViIndexOptions`，见 `test_collection_vector_config` |
+| `vector_index` 基础/高级配置 | ✅ 已开放：`CollectionVectorOptions` + 底层 `ViIndexOptions`，见 `test_collection_vector_config` |
 | vector search/cache/compact/stats | ✅ 已开放：`collection_search` / `collection_vector_*` APIs，见 `test_collection_store` / `test_collection_vector_lsm_bridge` |
+| fulltext explicit/natural query mode | ✅ 已开放：`CollectionFulltextSearchOptions.query_mode` 支持 `COLLECTION_FULLTEXT_QUERY_EXPLICIT/NATURAL`；`filter_fn` 在全局 top-k 截断前按可见 `DocumentRow` 过滤；默认显式语法兼容，Corvus 选择 natural OR/BM25 并提前过滤 scope/status/trust，见 `test_collection_fulltext_search` / `typed_repository_filters_scope_before_applying_result_limit` |
 | fulltext field config | ✅ 已开放：`DOC_FIELD_INDEX_FULLTEXT` 标记 `DOC_FIELD_TEXT` 字段，见 `test_collection_fulltext_search` |
 | fulltext search/cache/compact/stats | ✅ 已开放：`collection_fulltext_*` APIs，见 `test_collection_fulltext_search` |
 | hybrid BM25 + ANN fusion | ✅ 已开放：`collection_hybrid_search` 通过 fulltext/vector ranked lists + `vi_fusion_rrf()` 融合，见 `test_collection_hybrid_search` |
@@ -687,14 +664,9 @@ segment/manifest/lifecycle 封装层。完成全文检索任务后必须同步�
 varint doclist 或后续新增 positional sidecar。`fta_eval_query()` 对 bitpacked segment 的
 phrase/NEAR 会显式返回 `FTA_EINVAL`，避免产生错误位置匹配。
 
-旧 `VectorIndex` vtable 仍保留为兼容层：
-
-- 当前枚举只剩 `INDEX_DISKANN = 3`（0..2 已移除）。
-- `lsm_vector_index_create()`（`index_lsm_adapter.h`）把新 `ViIndex` 包装成
-  `VectorIndex` vtable，供 `IndexCatalogEntry.ann_index` 使用。
-- `index_diskann.h` 的 `DiskANNIndex` 仍存在，内部 `compat_inner` 指向 LSM 核心；
-  `diskann_repair_graph` / `index_catalog_repair_graph` 继续负责旧 free_list 修复。
-- `SearchResult` 现在同时携带 `heap_ctid_packed` 与 `emb_ctid_packed`（legacy）。
+向量运行时只有 `ViIndex` LSM 主路径。可复用算法类型使用 `external_ref`，MustDB
+adapter 才把它解释为 packed embedding handle；不保留旧 `VectorIndex` vtable 或
+DiskANN wrapper。
 
 ### 页面感知磁盘格式（index_page.h）
 
@@ -713,11 +685,8 @@ DiskANN 页面布局：
 - meta 页放 `DiskANNMetaTuple`（64B：magic `0x44534E4E`、version、R/L/alpha、
   `default_node`、`total_nodes`、`first_node_block` 等）+ 若干 `DiskANNLabeledNode`。
 - node 页是 slotted page：`MustDbSlot`（4B）槽 + `DiskANNNodeHdr`（32B，
-  含 `heap_ctid`、`emb_iid`、`xmax`）+ 固定 R 个 `NodePtr` 邻居 + i16 标签。
+  含 `heap_ctid`、算法中立的 `external_ref`、`xmax`）+ 固定 R 个 `NodePtr` 邻居 + i16 标签。
 - 向量 bytes 不嵌入 node tuple，由 `EmbeddingStore` 持有。
-
-磁盘结构字段名 `u64 emb_iid` 保留（存储 `itemptr_pack(emb_ctid)` 值）。
-隐藏列字符串 `"_emb_iid"` 保留。两者均为 checkpoint 格式兼容保留，**不得修改**。
 
 ### 二级索引 / Relation / 访问层
 
@@ -726,25 +695,72 @@ DiskANN 页面布局：
   `BTreePageOpaqueData`；当前单列、前向扫描、无并发 split 恢复。
 - `MustDbIndexAm`（`index_am.h`）：统一 BTree / Vector 的二级索引 vtable
   （insert/delete/scan/destroy），`index_am_create_btree` / `index_am_create_vector`。
-- `MustDbRelation`（`relation.h`）：`StorageTable*` + `RelationIndex[]`，是
-  DocumentAccess / GraphAccess 的编排层；`relation_insert/fetch/scan/vacuum/wal_redo`。
-- `DocumentAccess` / `GraphAccess` 是 relation + index_am 之上的 facade，
-  不是新的物理 store；DocumentAccess 直接持有 `EmbeddingStore` + `ViIndex`。
+- `MustDbRelation`（`relation.h`）：`StorageTable*` + relation-local embedding/index state，
+  是 table/index AM 的打开句柄；`relation_insert/fetch/scan/vacuum/wal_redo`。
+- `DocumentAccess` / `GraphAccess` 是 relation + index_am 之上的内部插件实现，
+  不是公开 facade，也不重复拥有 relation 已持有的 EmbeddingStore。
 - `MustDbAccess`（`access.h`）是插件化访问层：`MustDbAccessRoutine` vtable +
   `MustDbAccessManager` + catalog，支持 register type / create / call / vacuum。
 - `Collection`（`collection.h`）是最上层公开 API，封装 open/close、事务、
   document/graph 操作、向量搜索、checkpoint、vacuum、vector compact、
   single-file tail truncate、vacuum_full 与维护统计。
 
+#### 运行时源码职责边界
+
+- **可迁移阅读顺序**：`mustdb_database_create/open` -> `mustdb_table_create/open` ->
+  `MustDbRelation` -> `StorageTable/TableAM` -> `heap_insert/update/delete/fetch/scan` ->
+  `RowPage/BufferPool` -> `page WAL/checkpoint` -> `MustDbStorageManager`。关键入口注释必须
+  说明职责、所有权、失败回滚和 PG 对照；不得为了抽象增加无实际价值的 wrapper/context。
+  函数级调用链以 `docs/architecture/current-prototype.md` 第 10 节为准。
+- runtime `Catalog` 只注册和查找已经由正式 DDL 创建、打开的 `StorageTable`，并承担
+  bootstrap、relation cache 与定向 WAL redo 路由；不得再提供绕过系统表的建表工厂。
+- 表 DDL 统一走 `mustdb_table_create()`，Schema/Table/Column 逻辑元数据以系统 relation
+  为权威；index DDL/open 统一走 `MustDbRelation` + `MustDbIndexAm`，并持久化到
+  `mustdb_sys_index`。数据库 reopen 扫描系统表恢复 relation，再从 heap 对每个派生索引
+  恰好构建一次；不得维护第二套 `IndexCatalog` 或 cache-only index 生命周期。
+- Collection 内置 document/graph 路径直接调用 `document_access_*` / `graph_access_*`
+  typed internal API；`MustDbAccessRoutine.call` / `mustdb_access_call()` 只保留为外部插件
+  ABI 和插件契约测试边界，不得作为内置 Collection 的内部调度器。
+- `DocumentAccess` 对 Collection 保持不透明。具体结构只允许出现在
+  `document_access_private.h`；`collection*.c` 和 `single_file_vacuum.c` 只能调用
+  `document_access_*` typed operations，不得出现 `c->docs->...`，也不得为内置 docs
+  路径构造 `DocumentAccess*Args` 后再走通用 plugin call。通用
+  `MustDbAccessRoutine.call` 仅保留给插件调用者和插件契约测试。
+- `document_access.c` 只负责 create/destroy 和轻量 accessor；row CRUD、全文、向量、
+  rebuild/recovery 分别归 `document_access_row.c`、`document_access_fulltext.c`、
+  `document_access_vector.c`、`document_access_recovery.c`。跨文件实现 helper 必须使用
+  `document_access_private_*` 前缀。
+- Collection 的配置复制与 create/open 装配归 `collection_open.c`，live handle lease、
+  close/drain 和最终销毁归 `collection_lifecycle.c`，WAL/reopen 编排归
+  `collection_recovery.c`，checkpoint participant 与 vector/fulltext 发布归
+  `collection_checkpoint.c`。不得再把 recovery/index 实现塞回 lifecycle。
+- RowStore 按 PG heap 责任拆分：`row_store.c` 对应 relation 生命周期与状态装配，
+  `row_store_page_io.c` 对应 `hio.c`/buffer-page 协调，`row_store_tuple.c` 对应
+  `heaptuple.c`，`row_store_heap.c` 对应 `heapam.c` 的 DML/fetch/scan，
+  `row_store_visibility.c` 对应 `heapam_visibility.c`，`row_store_vacuum.c` 对应
+  `pruneheap.c`/`vacuumlazy.c`，`row_store_wal.c` 对应 `heapam_xlog.c`。
+  这是嵌入式语义对齐，不引入 PG backend 全局状态。故障注入接口只放在
+  `row_store_test.h`，不得进入 `row_store.h` 公共 heap AM 契约。
+
 ### WAL / 恢复
 
 - `WAL` 记录：20B `WalRecordHdr{total_len,crc32,xid,type,_pad}` + payload。
-- 类型含 `WAL_HEAP_INSERT/DELETE`、`WAL_VECTOR_PUT/DELETE`、`WAL_COL_INSERT`、
-  `WAL_DISKANN_INSERT/PAGE_IMAGE`、`WAL_PAGE_IMAGE(S)`、`WAL_TXN_BEGIN/COMMIT/ABORT/CHECKPOINT`。
+- WAL 主路径固定为 `append -> 256KB userspace ring -> batch pwrite -> fsync`；
+  `base_lsn <= flush_lsn <= write_lsn <= insert_lsn`。所有 append API 返回 record
+  end-LSN，page LSN 与 commit LSN 都使用该 end-LSN；只有 `wal_flush_upto()` 能推进
+  durable 的 `flush_lsn`，调用方不得直接访问 WAL 内部边界或自行 `fsync(wal->fd)`。
+- 类型含 `WAL_HEAP_INSERT/DELETE`、`WAL_VECTOR_PUT/DELETE/INTENT/INTENT_STATE`、
+  `WAL_COL_INSERT`、通用 `WAL_PAGE_IMAGE(S)`、`WAL_TXN_BEGIN/COMMIT/ABORT/CHECKPOINT`。
 - 页镜像 WAL 通过 `rel_id + fork + block_id + page_lsn` 分发，
-  `MustDbPagerRegistry/PagerManager` 是 redo + flush 的回调注册表。
-- `txnmgr_checkpoint` 先 flush 脏页，再序列化 CLOG，最后 `wal_truncate_and_rewrite`
-  把 WAL 压回 O(1)；`txnmgr_recover` 扫 WAL 重建 CLOG/next_xid。
+  `MustDbPageRedoRegistry` 只负责 redo 路由；数据库级 BufferPool 负责统一刷脏。
+- `mustdb_checkpoint` 对齐 PG `CreateCheckPoint/CheckPointBuffers/BufferSync`：冻结本轮 dirty
+  generation，全局扫描 BufferPool（系统表与用户表一视同仁），同步 direct-I/O participant
+  和 SMGR fork/free map，写并 flush checkpoint WAL，轮转双 DBHeader，最后回收 WAL 前缀。
+- checkpoint control 只保存物理恢复边界，不遍历或复制六张系统表；系统 catalog relation
+  是 schema/table/column/index/access/sequence 的唯一逻辑权威。实验树只接受当前格式，
+  不保留 v5 relation-copy 或在线/离线迁移器。
+- 双 DBHeader 使用固定小端 codec、checksum、generation；当前 v7 generation 不完整时
+  只回退同格式的上一完整 generation。`txnmgr_recover` 从 sidecar WAL 重建 CLOG/next_xid。
 - sidecar WAL 由 `single_file_wal_path/init_sidecar/checkpoint_delete` 管理，
   checkpoint 成功后可以删除/截断。
 
@@ -752,10 +768,10 @@ DiskANN 页面布局：
 
 | 概念 | 正确命名 | 禁用命名 |
 |------|---------|---------|
-| ANN 节点到向量的指针 | `emb_ctid: ItemPtr` | ~~emb_iid~~ |
+| ANN 算法节点的外部引用 | `external_ref: u64` | ~~emb_iid~~ |
 | EmbeddingStore 追加/计数 | `embedding_store_append` / `embedding_store_count` | ~~append_and_get_ctid~~ |
 | 批量插入上下文 heap 输出 | `out_heap_ctids` | ~~out_row_ids / iids~~ |
-| 搜索结果物理位置 | `heap_ctid_packed`（主）/ `emb_ctid_packed`（legacy） | ~~internal_id~~ |
+| MustDB 搜索结果行位置 | `heap_ctid` / `heap_ctid_packed` | ~~internal_id / emb_ctid_packed~~ |
 | ANN 旧槽索引 | `old_slot` | ~~old_iid~~ |
 | ColumnStore 顺序索引 | `seq_idx` | ~~iid~~ |
 | RowStore 槽计数 | `heap_relation_slot_count()` | ~~row_store_slot_count / next_internal_id~~ |
@@ -768,12 +784,15 @@ DiskANN 页面布局：
 - **错误返回**：`int`（0 成功 / -1 失败）或 `ItemPtr`（`INVALID_ITEM_PTR` = 失败）
 - **不得过度防御**：只在系统边界（外部输入）做校验，内部不变量用 `assert()`
 - - **可以修改src下代码的测试用例写到tests, tmp/src下的代码的测试用例写到tmp/tests，src下代码的测试用例写到tests 主要通过tmp/tests移植** 
-- **数据库的知识和实现 必须和PG 代码对齐，包括函数参数 代码组织对齐，并符合嵌入式环境，不能有新发明 不会的请参考/home/unvdb/cproject/UDB-TX PG代码**
+- **数据库的知识和实现必须采用 PG 风格对齐**：函数参数、核心命名和代码组织优先参考
+  `/home/unvdb/cproject/UDB-TX`，同时只实现嵌入式环境真正需要的子集，不追求 PostgreSQL
+  1:1 完整复制，也不引入没有明确需求的新架构。
 
 ## 禁止行为
 - **不得修改 `src/` 下代码或头文件；`src` 是用户手写产品化核心，AI 默认只允许修改 `tmp/` 和文档**
 - **不得引入顺序 iid 计数器**（如 `next_internal_id`、新增 `emb_iid` 字段）
-- **不得修改磁盘格式字段名** `u64 emb_iid` 及字符串 `"_emb_iid"` — checkpoint 兼容
+- **不得重新引入已删除的** `emb_iid` / `"_emb_iid"` **兼容字段**；当前内部列名是
+  `"_vector_id"`，算法库使用中立的 `external_ref`
 - **不得在 `src/store.h` 中定义 `EmbeddingStore` 结构体主体** — 与 `tmp/src/embedding_store.h` 冲突
 - **不得对 `get(seq_idx)` 统一改为 ctid** — 三引擎地址空间不同，无法统一
 - **修改代码后必须运行 `make -C tmp test` 验证全部测试通过**（测试数量随新增测试文件增长）
@@ -790,27 +809,28 @@ static int pass_count = 0, fail_count = 0;
 // main() 返回 fail_count > 0 ? 1 : 0
 ```
 
-Catalog 测试套路：
+Catalog/Index 测试套路：
 ```c
-catalog_create() → catalog_create_schema() → index_catalog_create() → index_catalog_get()
+mustdb_table_create() → mustdb_relation_create_*_index()
+    → mustdb_sys_index → reopen → relation_find_index()
 ```
 
 ## 关键 API 速查
 
 ```c
 // RowStore（heap，PG heapam 风格）
-ItemPtr heap_insert(RowStore*, TxnId xid, u32 cid, ItemPtr emb_ctid,
+ItemPtr heap_insert(RowStore*, Transaction*, u32 cid,
                     const Datum* values, u64 null_bits);
 int     heap_fetch(RowStore*, ItemPtr tid, const RowSnapshot*, TxnId own_xid,
                    TupleHdr* out_hdr, Datum* out_vals);
-int     heap_update(RowStore*, ItemPtr old_tid, TxnId xid, u32 cid, ItemPtr emb_ctid,
+int     heap_update(RowStore*, ItemPtr old_tid, Transaction*, u32 cid,
                     const Datum* values, u64 null_bits, ItemPtr* out_new_tid);
-bool    heap_delete(RowStore*, ItemPtr tid, TxnId xid, u32 cid);
-RsWriteResult heap_update_with_options(RowStore*, ItemPtr old_tid, TxnId xid, u32 cid,
-                                       ItemPtr emb_ctid, const Datum* values,
+bool    heap_delete(RowStore*, ItemPtr tid, Transaction*, u32 cid);
+RsWriteResult heap_update_with_options(RowStore*, ItemPtr old_tid, Transaction*, u32 cid,
+                                       const Datum* values,
                                        u64 null_bits, const RsWriteOptions* opts,
                                        ItemPtr* out_new_tid);
-RsWriteResult heap_delete_with_options(RowStore*, ItemPtr tid, TxnId xid, u32 cid,
+RsWriteResult heap_delete_with_options(RowStore*, ItemPtr tid, Transaction*, u32 cid,
                                        const RsWriteOptions* opts);
 int     txnmgr_vacuum_freeze_heap(TransactionManager*, RowStore*,
                                   RowFreezeMaintenanceStats* out);
@@ -826,20 +846,17 @@ int        embedding_store_write_at(EmbeddingStore*, ItemPtr emb_ctid, const f32
 int        embedding_store_free(EmbeddingStore*, ItemPtr emb_ctid);
 usize      embedding_store_count(const EmbeddingStore*);
 
-// StorageTable（批量插入唯一公开入口）
-void  storage_table_insert_datachunk(StorageTable*, const MustDbChunk*, ItemPtr* out_heap_ctids);
+// StorageTable（显式事务 CRUD）
+int   storage_table_insert_chunk(StorageTable*, Transaction*, u32 cid,
+                                 const MustDbChunk*, ItemPtr* out_heap_ctids);
+RsWriteResult storage_table_update_row(StorageTable*, Transaction*, u32 cid,
+                                       ItemPtr old_heap_ctid, const MustDbChunk*,
+                                       const RsWriteOptions*, ItemPtr* out_new_heap_ctid);
+RsWriteResult storage_table_delete_row(StorageTable*, Transaction*, u32 cid,
+                                       ItemPtr heap_ctid, const RsWriteOptions*);
 int   storage_table_get_row_by_ctid(StorageTable*, ItemPtr heap_ctid, Datum* out_vals, u64* out_null_bits);
 usize storage_table_seq_scan(StorageTable*, const VectorCondition*, TableFilter, void*,
                              const MvccSnapshot*, TxnId own_xid, TableSearchResult*, usize max_results);
-
-// 事务路径
-ItemPtr       storage_table_insert_txn(StorageTable*, Transaction*, const MustDbChunk*);
-TxnWriteResult storage_table_delete_txn(StorageTable*, Transaction*, ItemPtr heap_ctid);
-TxnWriteResult storage_table_delete_txn_opts(StorageTable*, Transaction*, ItemPtr heap_ctid,
-                                             const RsWriteOptions* opts);
-ItemPtr       storage_table_update_txn(StorageTable*, Transaction*, ItemPtr old_ctid, const MustDbChunk*);
-ItemPtr       storage_table_update_txn_opts(StorageTable*, Transaction*, ItemPtr old_ctid,
-                                            const MustDbChunk*, const RsWriteOptions* opts);
 
 // Collection 写冲突策略
 int collection_set_write_options(Collection*, const CollectionWriteOptions*);
@@ -850,10 +867,6 @@ int   vi_index_insert(ViIndex*, u64 vector_id, const f32* vector, usize dim);
 usize vi_index_search(ViIndex*, const f32* query, usize dim, usize k, VaTopKEntry* out, usize out_cap);
 int   vi_index_delete(ViIndex*, u64 vector_id);
 int   vi_index_flush_mutable(ViIndex*);
-
-// 搜索结果（旧 VectorIndex vtable）
-typedef struct { u64 heap_ctid_packed; u64 emb_ctid_packed; f32 distance; } SearchResult;
-void result_heap_push(ResultMaxHeap*, u64 heap_ctid_packed, u64 emb_ctid_packed, f32 distance);
 
 // vtable 宏
 TAM_APPEND(am, data)                                 // 单行追加

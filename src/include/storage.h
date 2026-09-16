@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include "must.h"
 
-#include "vector.h"
+#include "slice.h"
 #include "wal.h"
 #include "catalog.h"
 
@@ -58,7 +58,7 @@ typedef struct
 
 FileBuffer* FileBuffer_create(usize size);
 
-// BlockManager 类型枚举 - 用于区分不同的实现
+// ExtentManager 类型枚举 - 用于区分不同的实现
 typedef enum
 {
     FILEHANDLE_FILE = 0,   // 文件句柄
@@ -110,58 +110,58 @@ typedef struct Block
 Block* Block_create(block_id_t block_id);
 void block_destroy(Block* block);
 
-  // BlockManager 虚类（接口）- 使用函数指针实现多态
-typedef struct BlockManager BlockManager;
+  // ExtentManager 虚类（接口）- 使用函数指针实现多态
+typedef struct ExtentManager ExtentManager;
 
-// BlockManager 类型枚举 - 用于区分不同的实现
+// ExtentManager 类型枚举 - 用于区分不同的实现
 typedef enum
 {
     BLOCK_MANAGER_SINGLE_FILE = 0,   // 单文件块管理器
     BLOCK_MANAGER_MULTI_FILE,        // 多文件块管理器（预留）
     BLOCK_MANAGER_MEMORY,            // 内存块管理器（预留）
-} BlockManagerType;
+} ExtentManagerType;
 
-// // BlockManager 的虚函数表（V-Table）
-// typedef struct BlockManagerVTable
+// // ExtentManager 的虚函数表（V-Table）
+// typedef struct ExtentManagerVTable
 // {
 //       // 读取块的函数指针（纯虚函数）
-//     void (*read)(BlockManager* self, Block* block);
+//     void (*read)(ExtentManager* self, Block* block);
 
 //       // 写入块的函数指针（纯虚函数）
-//     void (*write)(BlockManager* self, Block* block);
+//     void (*write)(ExtentManager* self, Block* block);
 
 //       // 创建块的函数指针（纯虚函数）
-//     Block* (*create_block)(BlockManager* self);
+//     Block* (*create_block)(ExtentManager* self);
 
 //       // 析构函数
-//     void (*destroy)(BlockManager* self);
-// } BlockManagerVTable;
+//     void (*destroy)(ExtentManager* self);
+// } ExtentManagerVTable;
 
-//   // BlockManager 基类结构
-// struct BlockManager
+//   // ExtentManager 基类结构
+// struct ExtentManager
 // {
-//     BlockManagerVTable* vtable;  // 虚函数表指针
-//     BlockManagerType type;       // 管理器类型标识
+//     ExtentManagerVTable* vtable;  // 虚函数表指针
+//     ExtentManagerType type;       // 管理器类型标识
 // };
 
-// 定义BlockManager虚表和基类
+// 定义ExtentManager虚表和基类
 // clang-format off
-DEFINE_CLASS(BlockManager,
-    VMETHOD(BlockManager, read, void, Block* block)
-    VMETHOD(BlockManager, write, void, Block* block)
-    VMETHOD(BlockManager, get_free_block_id, block_id_t)
-    VMETHOD(BlockManager, create_block, Block*)
-    VMETHOD(BlockManager, get_frist_meta_block, block_id_t)
-    VMETHOD(BlockManager, write_header, void, DatabaseHeader)
-    VMETHOD(BlockManager, destroy, void)
+DEFINE_CLASS(ExtentManager,
+    VMETHOD(ExtentManager, read, void, Block* block)
+    VMETHOD(ExtentManager, write, void, Block* block)
+    VMETHOD(ExtentManager, get_free_block_id, block_id_t)
+    VMETHOD(ExtentManager, create_block, Block*)
+    VMETHOD(ExtentManager, get_frist_meta_block, block_id_t)
+    VMETHOD(ExtentManager, write_header, void, DatabaseHeader)
+    VMETHOD(ExtentManager, destroy, void)
     ,
-    FIELD(type, BlockManagerType)
+    FIELD(type, ExtentManagerType)
 )
 // clang-format on
 
 typedef struct
 {
-    EXTENDS(BlockManager);           // 继承 BlockManager（组合方式）
+    EXTENDS(ExtentManager);           // 继承 ExtentManager（组合方式）
     // 用于决定哪个 header 是“活跃”的（启动时选择 iteration 更大的那个）。
     u8 active_header;
     // 数据库文件路径
@@ -171,21 +171,21 @@ typedef struct
     // 用于读写 header 的缓冲区
     FileBuffer* header_buffer;
     // 空闲块列表（记录可回收/空闲数据块 id）。
-    Vector free_list;
+    Slice free_list;
     // 已使用块列表（记录已分配/使用的数据块 id）。
-    Vector used_blocks;
+    Slice used_blocks;
     // 当前文件中已分配的最大块编号（从0开始）。新块分配时从 max_block + 1 开始。
     block_id_t max_block;
     // 当前 meta block 的块 id（如果有）。meta block 存放更复杂的元数据。
     block_id_t meta_block;
     // 迭代次数，用于版本控制和元数据更新。
     u64 iteration_count;
-} SingleFileBlockManager;
+} SingleFileExtentManager;
 
-SingleFileBlockManager* create_new_database(const char* path, bool create_new);
+SingleFileExtentManager* create_new_database(const char* path, bool create_new);
 
-#define blockManager_write(mptr, block) \
-    GENERIC_DISPATCH(mptr, SingleFileBlockManager* : single_file_block_manager_write)(mptr, block)
+#define ExtentManager_write(mptr, block) \
+    GENERIC_DISPATCH(mptr, SingleFileExtentManager* : single_file_block_manager_write)(mptr, block)
 
 typedef enum
 {
@@ -223,7 +223,7 @@ DEFINE_CLASS(Deserializer,
 typedef struct MetaBlockReader
 {
     EXTENDS(Deserializer); // 继承 Deserializer（组合方式）
-    BlockManager* manager;  // 管理器指针
+    ExtentManager* manager;  // 管理器指针
     Block* block;  // 当前块指针
     usize offset;  // 当前块内的偏移量
     block_id_t next_block_id;  // 下一个块的 ID
@@ -284,7 +284,7 @@ DEFINE_CLASS(Serializer,
 typedef struct
 {
     EXTENDS(Serializer); // 继承
-    BlockManager* manager;  // 管理器指针
+    ExtentManager* manager;  // 管理器指针
     Block* block;  // 当前块指针
     usize offset;  // 当前块内的偏移量
 } MetaBlockWriter;
@@ -333,27 +333,27 @@ void metaBlockWriter_write_data(MetaBlockWriter* self, data_ptr_t buffer, usize 
 
 typedef struct StorageManager
 {
-    BlockManager* block_manager; // 块管理器指针
+    ExtentManager* block_manager; // 块管理器指针
     WALManager* wal_manager; // WAL 管理器指针
 } StorageManager;
 
 typedef struct
 {
-    BlockManager* block_manager; // 存储管理器指针
+    ExtentManager* block_manager; // 存储管理器指针
     Catalog* catalog; // 目录指针
     MetaBlockWriter* meta_block_writer; // 元数据块写入器指针
     MetaBlockWriter* tabledata_writer; // 元数据块读取器指针
 } CheckpointManager;
 
-CheckpointManager* CheckpointManager_create(BlockManager* block_manager, Catalog* catalog);
+CheckpointManager* CheckpointManager_create(ExtentManager* block_manager, Catalog* catalog);
 void CheckpointManager_destroy(CheckpointManager* self);
 void checkpointManager_createpoint(CheckpointManager* self);
 void checkpointManager_loadfromstorage(CheckpointManager* self);
 
-MetaBlockWriter* MetaBlockWriter_create(BlockManager* manager);
+MetaBlockWriter* MetaBlockWriter_create(ExtentManager* manager);
 void metaBlockWriter_flush(MetaBlockWriter* writer);
 void metaBlockWriter_destroy(MetaBlockWriter* writer);
-void MetaBlockReader_init(MetaBlockReader* reader, BlockManager* manager, block_id_t block_id);
+void MetaBlockReader_init(MetaBlockReader* reader, ExtentManager* manager, block_id_t block_id);
 void metaBlockReader_deinit(MetaBlockReader* reader);
 void checkpointManager_write_table(CheckpointManager* self, TableCatalogEntry* entry);
 void checkpointManager_read_table(CheckpointManager* self, MetaBlockReader* reader);
@@ -363,12 +363,12 @@ typedef struct
     EXTENDS(Serializer); // 继承
     CheckpointManager* manager;  // 检查点管理器指针
     TableCatalogEntry* table;  // 表目录项指针
-    Vector blocks; // 块 ID 向量  vector<unique_ptr<Block>>
-    Vector offsets; // 偏移量向量 vector<usize>
-    Vector tuple_counts; // 元组数量向量 vector<usize>
-    Vector row_numbers; // 行号向量 vector<usize>
-    Vector indexes; // 索引偏移量向量 vector<usize>
-    Vector data_pointers;// vector<vector<DataPointer>> data_pointers;
+    Slice blocks; // 块 ID 向量  vector<unique_ptr<Block>>
+    Slice offsets; // 偏移量向量 vector<usize>
+    Slice tuple_counts; // 元组数量向量 vector<usize>
+    Slice row_numbers; // 行号向量 vector<usize>
+    Slice indexes; // 索引偏移量向量 vector<usize>
+    Slice data_pointers;// vector<vector<DataPointer>> data_pointers;
 } TableDataWriter;
 
 typedef struct
@@ -386,16 +386,16 @@ typedef struct
     CheckpointManager* manager;  // 管理器指针
     TableCatalogEntry* table;  // 表目录项指针
     MetaBlockReader* reader;  // 元数据读取器指针
-    Vector blocks; // 块 ID 向量  vector<unique_ptr<Block>>
-    Vector offsets; // 偏移量向量 vector<usize>
-    Vector tuple_counts; // 元组数量向量 vector<usize>
-    Vector row_numbers; // 行号向量 vector<usize>
+    Slice blocks; // 块 ID 向量  vector<unique_ptr<Block>>
+    Slice offsets; // 偏移量向量 vector<usize>
+    Slice tuple_counts; // 元组数量向量 vector<usize>
+    Slice row_numbers; // 行号向量 vector<usize>
     // 每一列的数据在磁盘上被拆分成多个 Block 存储，data_pointers[col]
     // 记录了该列所有 Block 的元信息（block_id、offset、tuple_count 等）。indexes[col]
     // 就是指向这个数组的当前读取位置
     // 记录列 col 下一个待读取的数据块在 data_pointers[col] 中的下标
-    Vector indexes; // 索引偏移量向量 vector<usize>
-    Vector data_pointers; // vector<vector<DataPointer>> data_pointers;
+    Slice indexes; // 索引偏移量向量 vector<usize>
+    Slice data_pointers; // vector<vector<DataPointer>> data_pointers;
 } TableDataReader;
 
 #endif  // STORAGE_H

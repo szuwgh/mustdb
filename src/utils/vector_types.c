@@ -30,7 +30,7 @@ void MustDbVector_init(MustDbVector* vector, TypeID type)
     vector->data = NULL;
 }
 
-void MustDbVector_from_vector(MustDbVector* vector, Vector src, TypeID type)
+void MustDbVector_from_slice(MustDbVector* vector, Slice src, TypeID type)
 {
     vector->type = type;
     vector->count = src.size;

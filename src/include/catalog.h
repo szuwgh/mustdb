@@ -4,7 +4,7 @@
 #include "must.h"
 #include "hash.h"
 #include "parser.h"
-#include "vector.h"
+#include "slice.h"
 typedef struct DataTable DataTable;
 typedef struct StorageManager StorageManager;
 typedef struct StorageTable StorageTable;
@@ -73,7 +73,7 @@ typedef struct
     usize column_count;
 } TableCatalogEntry;
 
-Vector tableCatalogEntry_get_types(TableCatalogEntry* entry);
+Slice tableCatalogEntry_get_types(TableCatalogEntry* entry);
 
 // 目录项 相当于pg catalog
 typedef struct

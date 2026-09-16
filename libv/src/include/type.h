@@ -30,7 +30,7 @@ typedef u64 TxnId;
  * MAKE(type, init_fn, ...) - 零初始化 + 调用 init 函数，返回结构体值
  *
  * 用法：
- *   Vector v      = MAKE(Vector, sizeof(int), 0);
+ *   Slice values  = MAKE(Slice, sizeof(int), 0);
  *   hmap m        = MAKE(hmap);
  *   CatalogSet s  = MAKE(CatalogSet);
  */
@@ -40,8 +40,6 @@ typedef u64 TxnId;
         type##_init(&_obj, ##__VA_ARGS__); \
         _obj;                              \
     })
-
-#define VEC(elem, ...)   MAKE(Vector, sizeof(elem), ##__VA_ARGS__)
 
 // _Generic dispatch: auto-select key_size, hash_func, key_compare by key type
 // Supported key types: int, char*, const char*

@@ -1,5 +1,5 @@
 MODULE := core
-OBJS := hash.o vector.o type.o
+OBJS := hash.o slice.o type.o
 SUBDIRS := net
 
 TOPDIR ?= $(abspath ..)

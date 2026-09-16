@@ -1,6 +1,6 @@
 MODULE := core
 OBJS := db.o
-SUBDIRS := catalog parse storage/buffer storage/index storage/table transaction utils wal
+SUBDIRS := catalog parse storage/buffer storage/index storage/table transaction utils storage/wal
 
 TOPDIR ?= $(abspath ..)
 BUILD_DIR ?= $(TOPDIR)/build/mustdb

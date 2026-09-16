@@ -1,5 +1,5 @@
 #include "hash.h"
-#include "vector.h"
+#include "slice.h"
 
 #include <stdio.h>
 
@@ -23,12 +23,15 @@ static int fail_count = 0;
 
 int main(void)
 {
-    Vector v;
-    CHECK(Vector_init(&v, sizeof(u64), 0) == 0, "Vector_init works from libv");
+    Slice values;
+    CHECK(slice_init(&values, sizeof(u64), 0) == 0,
+          "slice_init works from libv");
     u64 x = 42;
-    CHECK(vector_push_back(&v, &x) == 0, "vector_push_back works from libv");
-    CHECK(*(u64*)vector_get(&v, 0) == 42, "vector_get returns stored value");
-    vector_deinit(&v);
+    CHECK(slice_push_back(&values, &x) == 0,
+          "slice_push_back works from libv");
+    CHECK(*(u64*)slice_get(&values, 0) == 42,
+          "slice_get returns stored value");
+    slice_deinit(&values);
 
     hmap hm;
     hmap_init(&hm, sizeof(u32), sizeof(u64), 8, hmap_int_hash, hmap_int_cmp);

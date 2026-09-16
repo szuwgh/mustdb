@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "must.h"
-#include "vector.h"
+#include "slice.h"
 #include "catalog.h"
 #include "hash.h"
 #include "parser.h"
@@ -86,11 +86,11 @@ static TableCatalogEntry* make_table_entry(Catalog* catalog, SchemaCatalogEntry*
     catalogEntry_init(&entry->base, TABLE, name);
     entry->schema = schema;
     entry->column_count = info->col_count;
-    Vector types = VEC(TypeID, info->col_count);
+    Slice types = SLICE(TypeID, info->col_count);
     for (int i = 0; i < info->col_count; i++)
     {
         TypeID t = get_internal_type(info->columns[i].type);
-        vector_push_back(&types, &t);
+        slice_push_back(&types, &t);
     }
     entry->datatable =
         Datatable_create(catalog->storage, info->schema_name, name, info->col_count, types.data);
@@ -282,12 +282,12 @@ TableCatalogEntry* catalog_get_table(Catalog* catalog, const char* schema_name,
     return (TableCatalogEntry*)catalogSet_get_entry(&schema->tables, table_name);
 }
 
-Vector tableCatalogEntry_get_types(TableCatalogEntry* entry)
+Slice tableCatalogEntry_get_types(TableCatalogEntry* entry)
 {
-    Vector result = VEC(SQLType, entry->column_count);
+    Slice result = SLICE(SQLType, entry->column_count);
     for (usize i = 0; i < entry->column_count; i++)
     {
-        vector_push_back(&result, &entry->columns[i].type);
+        slice_push_back(&result, &entry->columns[i].type);
     }
     return result;
 }
